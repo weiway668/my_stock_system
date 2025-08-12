@@ -1,0 +1,188 @@
+spring:
+  application:
+    name: hk-stock-trading-system
+    version: 1.0.0
+  
+  profiles:
+    active: dev
+  
+  jpa:
+    open-in-view: false
+    show-sql: false
+    hibernate:
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    properties:
+      hibernate:
+        format_sql: true
+        use_sql_comments: true
+        jdbc:
+          batch_size: 20
+        order_inserts: true
+        order_updates: true
+  
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Hong_Kong
+    serialization:
+      write-dates-as-timestamps: false
+      indent-output: true
+    deserialization:
+      fail-on-unknown-properties: false
+    default-property-inclusion: non_null
+  
+  task:
+    execution:
+      pool:
+        core-size: 4
+        max-size: 8
+        queue-capacity: 100
+      thread-name-prefix: async-
+    scheduling:
+      pool:
+        size: 4
+      thread-name-prefix: scheduled-
+  
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+server:
+  port: 8080
+  shutdown: graceful
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 10
+    connection-timeout: 20s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+      environment: ${spring.profiles.active}
+
+# Trading System Configuration
+trading:
+  system:
+    name: "HK Stock Trading System"
+    timezone: "Asia/Hong_Kong"
+    
+  capital:
+    total: 100000
+    currency: "HKD"
+    max-position: 50000
+    max-positions-count: 3
+    
+  risk:
+    max-daily-loss: 0.05      # 最大日亏损5%
+    max-drawdown: 0.15        # 最大回撤15%
+    risk-per-trade: 0.02      # 单笔风险2%
+    stop-loss-atr: 2.0        # ATR止损倍数
+    
+  targets:
+    - symbol: "2800.HK"
+      name: "Tracker Fund"
+      type: "ETF"
+      weight: 0.4
+      lot-size: 500
+    - symbol: "3033.HK"
+      name: "Hang Seng Tech ETF"
+      type: "ETF"
+      weight: 0.3
+      lot-size: 100
+    - symbol: "00700.HK"
+      name: "Tencent"
+      type: "STOCK"
+      weight: 0.3
+      lot-size: 100
+      
+  timeframes:
+    primary: "30m"
+    confirmation: "120m"
+    
+  execution:
+    mode: "PAPER"              # PAPER/LIVE
+    slippage: 0.001           # 滑点0.1%
+    commission: 0.0005        # 佣金0.05%
+    min-commission: 5.0       # 最低佣金5港币
+    
+  market-hours:
+    pre-market:
+      start: "09:00"
+      end: "09:30"
+    morning:
+      start: "09:30"
+      end: "12:00"
+    afternoon:
+      start: "13:00"
+      end: "16:00"
+    
+  # Strategy Configuration
+  strategies:
+    macd:
+      enabled: true
+      weight: 0.35
+      fast-period: 12
+      slow-period: 26
+      signal-period: 9
+      histogram-threshold: 0.002
+      
+    bollinger:
+      enabled: true
+      weight: 0.35
+      period: 20
+      std-dev: 2.0
+      squeeze-threshold: 0.015
+      
+    volume:
+      enabled: true
+      weight: 0.30
+      spike-ratio: 1.8
+      decline-ratio: 0.7
+      vwap-deviation: 0.02
+      
+  # Four-Layer Filter System
+  filters:
+    volatility:
+      min-atr: 0.005          # 最小ATR 0.5%
+      max-atr: 0.05           # 最大ATR 5%
+    volume:
+      min-ratio: 1.2          # 最小量比
+      min-turnover: 1000000   # 最小成交额100万
+    trend:
+      confirmation-period: "120m"
+      min-strength: 0.6
+    risk:
+      max-position-pct: 0.3   # 单个仓位最大30%
+      max-correlation: 0.7    # 最大相关性
+
+logging:
+  level:
+    root: INFO
+    com.trading: DEBUG
+    org.springframework: INFO
+    org.hibernate: WARN
+    com.lmax.disruptor: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/trading-system.log
+    max-size: 100MB
+    max-history: 30
+    total-size-cap: 1GB

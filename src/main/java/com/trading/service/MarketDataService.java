@@ -1,0 +1,358 @@
+package com.trading.service;
+
+import com.trading.domain.entity.MarketData;
+import com.trading.domain.vo.TechnicalIndicators;
+import com.trading.infrastructure.cache.CacheService;
+import com.trading.infrastructure.futu.FutuConnectionManager;
+import com.trading.repository.MarketDataRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+
+/**
+ * Market Data Service
+ * Provides historical and real-time market data operations
+ * Corresponds to Python FutuDataSource in the FUTU-API architecture
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+@ConditionalOnProperty(name = "trading.futu.connection.host")
+public class MarketDataService {
+
+    private final FutuConnectionManager connectionManager;
+    private final MarketDataRepository marketDataRepository;
+    private final CacheService cacheService;
+
+    private static final DateTimeFormatter ID_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
+
+    /**
+     * Get OHLCV data for a symbol (corresponds to Python get_ohlcv)
+     * 
+     * @param symbol Stock symbol (e.g., "00700.HK")
+     * @param timeframe Time frame (e.g., "30m", "120m", "1d")
+     * @param startTime Start time for data retrieval
+     * @param endTime End time for data retrieval
+     * @param limit Maximum number of records to return
+     * @return List of MarketData
+     */
+    public CompletableFuture<List<MarketData>> getOhlcvData(
+            String symbol, 
+            String timeframe, 
+            LocalDateTime startTime, 
+            LocalDateTime endTime,
+            int limit) {
+        
+        log.info("Fetching OHLCV data for symbol: {}, timeframe: {}, period: {} to {}", 
+            symbol, timeframe, startTime, endTime);
+
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // Check if connection is available
+                if (!connectionManager.isQuoteConnected()) {
+                    log.warn("Quote connection not available for symbol: {}", symbol);
+                    return getHistoricalDataFromDatabase(symbol, timeframe, startTime, endTime, limit);
+                }
+
+                // Try to fetch from FUTU API first
+                List<MarketData> apiData = fetchOhlcvFromFutu(symbol, timeframe, startTime, endTime, limit);
+                
+                if (apiData != null && !apiData.isEmpty()) {
+                    // Save to database and cache
+                    saveMarketDataBatch(apiData);
+                    cacheMarketData(apiData);
+                    return apiData;
+                } else {
+                    // Fallback to database
+                    log.debug("No data from API, falling back to database for symbol: {}", symbol);
+                    return getHistoricalDataFromDatabase(symbol, timeframe, startTime, endTime, limit);
+                }
+
+            } catch (Exception e) {
+                log.error("Error fetching OHLCV data for symbol: {}", symbol, e);
+                // Fallback to database on error
+                return getHistoricalDataFromDatabase(symbol, timeframe, startTime, endTime, limit);
+            }
+        });
+    }
+
+    /**
+     * Fetch OHLCV data from FUTU API (simulated for now)
+     */
+    private List<MarketData> fetchOhlcvFromFutu(
+            String symbol, 
+            String timeframe, 
+            LocalDateTime startTime, 
+            LocalDateTime endTime, 
+            int limit) {
+        
+        try {
+            log.debug("Fetching OHLCV from FUTU API for symbol: {}", symbol);
+            
+            // TODO: Replace with actual FUTU SDK call
+            // Example: 
+            // Object quoteContext = connectionManager.getQuoteContext();
+            // FutuKlineData klineData = quoteContext.getKline(symbol, timeframe, startTime, endTime);
+            // return convertFutuDataToMarketData(klineData);
+            
+            // For now, return simulated data
+            return generateSimulatedMarketData(symbol, timeframe, startTime, endTime, limit);
+            
+        } catch (Exception e) {
+            log.error("Error fetching data from FUTU API for symbol: {}", symbol, e);
+            return null;
+        }
+    }
+
+    /**
+     * Generate simulated market data for development/testing
+     */
+    private List<MarketData> generateSimulatedMarketData(
+            String symbol, 
+            String timeframe, 
+            LocalDateTime startTime, 
+            LocalDateTime endTime, 
+            int limit) {
+        
+        log.debug("Generating simulated market data for symbol: {}", symbol);
+        
+        // Create sample data based on Hong Kong stocks
+        BigDecimal basePrice = getBasePriceForSymbol(symbol);
+        LocalDateTime current = startTime;
+        List<MarketData> simulatedData = new java.util.ArrayList<>();
+        
+        for (int i = 0; i < Math.min(limit, 100); i++) {
+            if (current.isAfter(endTime)) {
+                break;
+            }
+            
+            // Generate realistic OHLCV data
+            BigDecimal variation = basePrice.multiply(BigDecimal.valueOf(Math.random() * 0.02 - 0.01));
+            BigDecimal open = basePrice.add(variation);
+            BigDecimal high = open.add(basePrice.multiply(BigDecimal.valueOf(Math.random() * 0.015)));
+            BigDecimal low = open.subtract(basePrice.multiply(BigDecimal.valueOf(Math.random() * 0.015)));
+            BigDecimal close = low.add(high.subtract(low).multiply(BigDecimal.valueOf(Math.random())));
+            Long volume = (long) (1000000 + Math.random() * 5000000);
+            
+            MarketData marketData = MarketData.builder()
+                .id(symbol + "_" + current.format(ID_FORMATTER))
+                .symbol(symbol)
+                .open(open)
+                .high(high)
+                .low(low)
+                .close(close)
+                .volume(volume)
+                .turnover(close.multiply(BigDecimal.valueOf(volume)))
+                .timestamp(current)
+                .timeframe(timeframe)
+                .indicators(generateSimulatedIndicators())
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+            
+            simulatedData.add(marketData);
+            current = current.plusMinutes(getTimeframeMinutes(timeframe));
+        }
+        
+        return simulatedData;
+    }
+
+    /**
+     * Get base price for a symbol (for simulation)
+     */
+    private BigDecimal getBasePriceForSymbol(String symbol) {
+        return switch (symbol) {
+            case "00700.HK", "700.HK" -> BigDecimal.valueOf(300.0); // Tencent
+            case "2800.HK" -> BigDecimal.valueOf(24.5); // Tracker Fund
+            case "3033.HK" -> BigDecimal.valueOf(3.8);  // Hang Seng Tech ETF
+            default -> BigDecimal.valueOf(100.0);
+        };
+    }
+
+    /**
+     * Generate simulated technical indicators
+     */
+    private TechnicalIndicators generateSimulatedIndicators() {
+        return TechnicalIndicators.builder()
+            .macdLine(BigDecimal.valueOf(Math.random() * 2 - 1))
+            .signalLine(BigDecimal.valueOf(Math.random() * 2 - 1))
+            .histogram(BigDecimal.valueOf(Math.random() * 1 - 0.5))
+            .upperBand(BigDecimal.valueOf(300 + Math.random() * 20))
+            .middleBand(BigDecimal.valueOf(300))
+            .lowerBand(BigDecimal.valueOf(300 - Math.random() * 20))
+            .rsi(BigDecimal.valueOf(30 + Math.random() * 40))
+            .volumeSma(BigDecimal.valueOf(2000000 + Math.random() * 3000000))
+            .volumeRatio(BigDecimal.valueOf(0.8 + Math.random() * 0.4))
+            .build();
+    }
+
+    /**
+     * Get timeframe in minutes
+     */
+    private int getTimeframeMinutes(String timeframe) {
+        return switch (timeframe.toLowerCase()) {
+            case "1m" -> 1;
+            case "5m" -> 5;
+            case "15m" -> 15;
+            case "30m" -> 30;
+            case "60m", "1h" -> 60;
+            case "1d" -> 1440;
+            default -> 30;
+        };
+    }
+
+    /**
+     * Get historical data from database
+     */
+    private List<MarketData> getHistoricalDataFromDatabase(
+            String symbol, 
+            String timeframe, 
+            LocalDateTime startTime, 
+            LocalDateTime endTime, 
+            int limit) {
+        
+        log.debug("Fetching historical data from database for symbol: {}", symbol);
+        
+        // Try cache first
+        String cacheKey = String.format("historical:%s:%s:%s:%s", symbol, timeframe, 
+            startTime.format(DateTimeFormatter.ISO_LOCAL_DATE), 
+            endTime.format(DateTimeFormatter.ISO_LOCAL_DATE));
+        
+        @SuppressWarnings("unchecked")
+        List<MarketData> cachedData = cacheService.getConfiguration(cacheKey, List.class);
+        if (cachedData != null) {
+            log.debug("Retrieved historical data from cache for symbol: {}", symbol);
+            return cachedData.stream().limit(limit).toList();
+        }
+        
+        // Fetch from database
+        List<MarketData> dbData = marketDataRepository.findBySymbolAndTimestampBetween(symbol, startTime, endTime)
+            .stream()
+            .limit(limit)
+            .toList();
+        
+        // Cache the result
+        if (!dbData.isEmpty()) {
+            cacheService.cacheConfiguration(cacheKey, dbData);
+        }
+        
+        return dbData;
+    }
+
+    /**
+     * Save market data batch to database
+     */
+    @Transactional
+    public void saveMarketDataBatch(List<MarketData> marketDataList) {
+        try {
+            log.debug("Saving {} market data records to database", marketDataList.size());
+            marketDataRepository.saveAll(marketDataList);
+            log.info("Successfully saved {} market data records", marketDataList.size());
+        } catch (Exception e) {
+            log.error("Error saving market data batch", e);
+            throw e;
+        }
+    }
+
+    /**
+     * Cache market data
+     */
+    private void cacheMarketData(List<MarketData> marketDataList) {
+        try {
+            for (MarketData data : marketDataList) {
+                cacheService.cacheMarketData(data.getSymbol(), data);
+            }
+            log.debug("Cached {} market data records", marketDataList.size());
+        } catch (Exception e) {
+            log.warn("Error caching market data", e);
+        }
+    }
+
+    /**
+     * Get latest market data for a symbol
+     */
+    public Optional<MarketData> getLatestMarketData(String symbol) {
+        try {
+            // Try cache first
+            MarketData cached = cacheService.getMarketData(symbol, MarketData.class);
+            if (cached != null) {
+                return Optional.of(cached);
+            }
+            
+            // Try database
+            return marketDataRepository.findTopBySymbolOrderByTimestampDesc(symbol);
+            
+        } catch (Exception e) {
+            log.error("Error getting latest market data for symbol: {}", symbol, e);
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Get symbols list (corresponds to Python get_symbols)
+     */
+    public CompletableFuture<List<String>> getSymbols(String marketRegion) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                log.debug("Fetching symbols for market region: {}", marketRegion);
+                
+                // TODO: Replace with actual FUTU SDK call
+                // Example: futuQuoteContext.getSymbolList(marketRegion)
+                
+                // For now, return common Hong Kong symbols
+                return getCommonHongKongSymbols();
+                
+            } catch (Exception e) {
+                log.error("Error fetching symbols for region: {}", marketRegion, e);
+                return getCommonHongKongSymbols();
+            }
+        });
+    }
+
+    /**
+     * Get common Hong Kong symbols for development
+     */
+    private List<String> getCommonHongKongSymbols() {
+        return List.of(
+            "00700.HK",  // Tencent
+            "09988.HK",  // Alibaba
+            "03690.HK",  // Meituan
+            "01024.HK",  // Kuaishou
+            "09618.HK",  // JD.com
+            "02800.HK",  // Tracker Fund ETF
+            "03033.HK",  // Hang Seng Tech ETF
+            "00005.HK",  // HSBC
+            "00941.HK",  // China Mobile
+            "01299.HK"   // AIA
+        );
+    }
+
+    /**
+     * Check if market data service is healthy
+     */
+    public boolean isHealthy() {
+        return connectionManager.isQuoteConnected() || canAccessDatabase();
+    }
+
+    /**
+     * Check if database is accessible
+     */
+    private boolean canAccessDatabase() {
+        try {
+            marketDataRepository.count();
+            return true;
+        } catch (Exception e) {
+            log.debug("Database access check failed", e);
+            return false;
+        }
+    }
+}

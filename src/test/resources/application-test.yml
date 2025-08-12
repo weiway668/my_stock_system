@@ -1,0 +1,125 @@
+spring:
+  # 测试环境数据库配置 - 使用内存H2数据库
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=MySQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: 
+    hikari:
+      pool-name: TestHikariPool
+      maximum-pool-size: 5
+      minimum-idle: 2
+      idle-timeout: 300000
+      connection-timeout: 20000
+      max-lifetime: 1200000
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+
+  # 测试环境缓存配置 - 使用简单缓存
+  cache:
+    type: simple
+
+  # Redis配置 - 测试环境可选
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: 
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 4
+          max-idle: 4
+          min-idle: 0
+          max-wait: -1ms
+
+server:
+  port: 0  # 随机端口，避免测试冲突
+
+# 测试环境日志配置
+logging:
+  level:
+    root: INFO
+    com.trading: DEBUG
+    com.lmax.disruptor: WARN
+    org.hibernate.SQL: WARN
+    org.springframework.web: WARN
+  pattern:
+    console: "%clr(%d{HH:mm:ss.SSS}){faint} %clr(${LOG_LEVEL_PATTERN:-%5p}) %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}"
+
+# 交易系统测试配置
+trading:
+  execution:
+    mode: PAPER
+    mock-data: true
+    
+  monitoring:
+    enabled: true
+    log-all-signals: false
+    log-all-orders: false
+    
+  # FUTU OpenAPI测试配置
+  futu:
+    connection:
+      host: 127.0.0.1
+      port: 11111
+      connection-timeout: 5000
+      read-timeout: 10000
+      max-retry-attempts: 1
+      retry-delay-ms: 1000
+      keep-alive: false
+      heartbeat-interval: 60000
+    
+    environment:
+      type: SIMULATE
+      paper-trading: true
+      market-region: HK
+      currency: HKD
+    
+    market-data:
+      enable-real-time: false  # 测试环境禁用实时数据
+      max-subscriptions: 10
+      default-timeframe: "30m"
+      max-historical-records: 100
+      enable-data-validation: false
+      real-time-cache-expiry: 60
+    
+    account:
+      auto-select-account: true
+      max-positions: 3
+      max-order-value: 1000.0
+      enable-risk-control: false
+      daily-loss-limit: 0.05
+      position-size-limit: 0.1
+
+# Disruptor测试配置
+disruptor:
+  ring-buffer-size: 256  # 较小的缓冲区用于测试
+  wait-strategy: BLOCKING  # 阻塞等待策略便于测试
+
+# Actuator测试配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "health,info,metrics"
+  endpoint:
+    health:
+      show-details: always
+
+# 禁用一些非必要的自动配置以加快测试速度
+spring.autoconfigure.exclude:
+  - org.springframework.boot.autoconfigure.web.servlet.WebMvcAutoConfiguration
+  - org.springframework.boot.autoconfigure.web.servlet.DispatcherServletAutoConfiguration

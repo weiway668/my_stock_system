@@ -1,0 +1,157 @@
+spring:
+  main:
+    allow-bean-definition-overriding: true
+  # H2 Database Configuration for Development
+  datasource:
+    url: jdbc:h2:mem:tradingdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=MySQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: 
+    hikari:
+      pool-name: TradingHikariPool
+      maximum-pool-size: 10
+      minimum-idle: 5
+      idle-timeout: 300000
+      connection-timeout: 20000
+      max-lifetime: 1200000
+  
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+      settings:
+        web-allow-others: true
+        trace: false
+  
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        generate_statistics: true
+  
+  # Redis Configuration for Development (Optional - can use embedded)
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: 
+      timeout: 2000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          max-wait: -1ms
+  
+  # Disable Redis if not available in dev
+  cache:
+    type: simple
+    
+server:
+  port: 8080
+  error:
+    include-message: always
+    include-binding-errors: always
+    include-stacktrace: always
+    include-exception: true
+
+# Development Logging
+logging:
+  level:
+    root: INFO
+    com.trading: DEBUG
+    org.springframework.web: DEBUG
+    org.springframework.data: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    com.lmax.disruptor: DEBUG
+  pattern:
+    console: "%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(${LOG_LEVEL_PATTERN:-%5p}) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n${LOG_EXCEPTION_CONVERSION_WORD:-%wEx}"
+
+# Trading System Development Settings
+trading:
+  execution:
+    mode: PAPER
+    mock-data: true
+    historical-data-path: ./data/historical
+    
+  monitoring:
+    enabled: true
+    log-all-signals: true
+    log-all-orders: true
+    
+  backtest:
+    enabled: true
+    start-date: 2024-01-01
+    end-date: 2024-12-31
+    initial-capital: 100000
+    
+  # FUTU OpenAPI Configuration for Development
+  futu:
+    connection:
+      host: 127.0.0.1
+      port: 11111
+      connection-timeout: 10000
+      read-timeout: 30000
+      max-retry-attempts: 3
+      retry-delay-ms: 5000
+      keep-alive: true
+      heartbeat-interval: 30000
+    
+    environment:
+      type: SIMULATE
+      paper-trading: true
+      market-region: HK
+      currency: HKD
+    
+    market-data:
+      enable-real-time: true
+      max-subscriptions: 50  # Reduced for dev environment
+      default-timeframe: "30m"
+      max-historical-records: 500  # Reduced for dev
+      enable-data-validation: true
+      real-time-cache-expiry: 300  # 5 minutes
+    
+    account:
+      auto-select-account: true
+      max-positions: 5  # Reduced for dev
+      max-order-value: 10000.0  # Reduced for dev
+      enable-risk-control: true
+      daily-loss-limit: 0.02  # 2% for safety in dev
+      position-size-limit: 0.2  # 20%
+    
+# Disruptor Configuration for Development
+disruptor:
+  ring-buffer-size: 1024  # Smaller size for development
+  wait-strategy: BLOCKING  # Use blocking wait in dev for debugging
+  
+# Actuator - Full exposure in development
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+  endpoint:
+    health:
+      show-details: always
+  trace:
+    http:
+      enabled: true
+      
+# API Documentation
+springdoc:
+  api-docs:
+    enabled: true
+    path: /api-docs
+  swagger-ui:
+    enabled: true
+    path: /swagger-ui.html
+    try-it-out-enabled: true
+    
+# Development Tools
+debug: false
+trace: false
