@@ -128,6 +128,35 @@
             <version>${ta4j.version}</version>
         </dependency>
 
+        <!-- FUTU API Dependencies -->
+        <!-- Protocol Buffers for FUTU API -->
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <version>3.25.1</version>
+        </dependency>
+        
+        <!-- Netty for TCP communication with FUTU OpenD -->
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-all</artifactId>
+            <version>4.1.100.Final</version>
+        </dependency>
+
+        <!-- OkHttp for HTTP/WebSocket communication -->
+        <dependency>
+            <groupId>com.squareup.okhttp3</groupId>
+            <artifactId>okhttp</artifactId>
+            <version>4.12.0</version>
+        </dependency>
+
+        <!-- JSON processing for FUTU response -->
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.10.1</version>
+        </dependency>
+
         <!-- Utilities -->
         <dependency>
             <groupId>org.apache.commons</groupId>

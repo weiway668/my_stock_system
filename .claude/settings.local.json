@@ -30,7 +30,8 @@
       "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn spring-boot:run -Dspring.profiles.active=dev -Dmaven.test.skip=true)",
       "Bash(rm:*)",
       "Bash(curl:*)",
-      "Bash(lsof:*)"
+      "Bash(lsof:*)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn compile -DskipTests)"
     ],
     "deny": [],
     "ask": []

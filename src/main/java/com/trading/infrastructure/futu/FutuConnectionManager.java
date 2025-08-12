@@ -1,6 +1,7 @@
 package com.trading.infrastructure.futu;
 
 import com.trading.infrastructure.config.FutuProperties;
+import com.trading.infrastructure.futu.client.FutuApiClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -25,6 +26,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class FutuConnectionManager {
 
     private final FutuProperties futuProperties;
+    private final FutuApiClient futuApiClient;
     private final ScheduledExecutorService scheduledExecutor = Executors.newScheduledThreadPool(2);
     private final ExecutorService connectionExecutor = Executors.newCachedThreadPool();
 
@@ -108,10 +110,16 @@ public class FutuConnectionManager {
         try {
             log.debug("Connecting quote context...");
             
-            // TODO: Replace with actual FUTU SDK quote connection
-            // Example: quoteContext = new OpenQuoteContext(host, port);
-            // For now, simulate connection
-            simulateConnection("QuoteContext");
+            // 使用FutuApiClient连接到FUTU OpenD
+            String host = futuProperties.getConnection().getHost();
+            int port = futuProperties.getConnection().getPort();
+            
+            boolean connected = futuApiClient.connect(host, port).get(5, TimeUnit.SECONDS);
+            if (!connected) {
+                throw new RuntimeException("连接FUTU OpenD失败");
+            }
+            
+            this.quoteContext = futuApiClient; // 使用同一个连接
             
             quoteConnected.set(true);
             lastQuoteHeartbeat = LocalDateTime.now();
@@ -132,10 +140,8 @@ public class FutuConnectionManager {
         try {
             log.debug("Connecting trade context...");
             
-            // TODO: Replace with actual FUTU SDK trade connection
-            // Example: tradeContext = new OpenSecTradeContext(host, port);
-            // For now, simulate connection
-            simulateConnection("TradeContext");
+            // 交易上下文也使用同一个连接（FUTU OpenD支持多协议）
+            this.tradeContext = futuApiClient; // 复用同一个连接
             
             tradeConnected.set(true);
             lastTradeHeartbeat = LocalDateTime.now();
@@ -174,6 +180,11 @@ public class FutuConnectionManager {
             disconnectQuoteContext();
             disconnectTradeContext();
             
+            // 关闭FutuApiClient连接
+            if (futuApiClient != null) {
+                futuApiClient.disconnect();
+            }
+            
             // Stop monitoring tasks
             stopMonitoring();
             
@@ -189,8 +200,7 @@ public class FutuConnectionManager {
     private void disconnectQuoteContext() {
         if (quoteContext != null) {
             try {
-                // TODO: Replace with actual FUTU SDK disconnect
-                // quoteContext.close();
+                // 行情上下文断开（由于FutuApiClient是共享的，仅标记状态）
                 log.debug("Quote context disconnected");
             } catch (Exception e) {
                 log.warn("Error disconnecting quote context", e);
@@ -207,8 +217,7 @@ public class FutuConnectionManager {
     private void disconnectTradeContext() {
         if (tradeContext != null) {
             try {
-                // TODO: Replace with actual FUTU SDK disconnect
-                // tradeContext.close();
+                // 交易上下文断开（实际断开在shutdown时执行）
                 log.debug("Trade context disconnected");
             } catch (Exception e) {
                 log.warn("Error disconnecting trade context", e);
@@ -262,10 +271,12 @@ public class FutuConnectionManager {
             return false;
         }
         
-        // TODO: Replace with actual FUTU SDK health check
-        // For now, simulate health check
-        lastQuoteHeartbeat = LocalDateTime.now();
-        return true;
+        // 使用FutuApiClient检查连接状态
+        if (futuApiClient != null && futuApiClient.isConnected()) {
+            lastQuoteHeartbeat = LocalDateTime.now();
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -276,10 +287,12 @@ public class FutuConnectionManager {
             return false;
         }
         
-        // TODO: Replace with actual FUTU SDK health check
-        // For now, simulate health check
-        lastTradeHeartbeat = LocalDateTime.now();
-        return true;
+        // 交易上下文也使用同一个连接
+        if (futuApiClient != null && futuApiClient.isConnected()) {
+            lastTradeHeartbeat = LocalDateTime.now();
+            return true;
+        }
+        return false;
     }
 
     /**

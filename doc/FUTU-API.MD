@@ -2,6 +2,8 @@ FUTU API交互代码的完整架构概览
 
   基于对代码的深入分析，FUTU API交互实现分布在以下核心文件中：
   工程目录：/Users/weiway/ai_workspace/python/stock_autotrading_system
+  官网重要地址：行情接口总览-https://openapi.futunn.com/futu-api-doc/quote/overview.html
+              交易接口总览-https://openapi.futunn.com/futu-api-doc/trade/overview.html
   🎯 主要组件结构
 
   1. 数据获取层：core/data/sources/futu_data_source.py
