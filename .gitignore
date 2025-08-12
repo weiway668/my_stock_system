@@ -1,0 +1,158 @@
+# Java
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+hs_err_pid*
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# IDE - IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+# IDE - Eclipse
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+# IDE - VS Code
+.vscode/
+*.code-workspace
+
+# Spring Boot
+*.log
+*.log.*
+.env
+application-local.properties
+application-local.yml
+application-local.yaml
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+*.h2.db
+*.trace.db
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.tmp/
+temp/
+tmp/
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Test Coverage
+jacoco.exec
+.coverage
+htmlcov/
+.tox/
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Documentation build
+docs/_build/
+docs/.doctrees/
+site/
+
+# Package files
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Trading System specific
+data/market-data/
+data/backtest-results/
+data/trade-logs/
+logs/
+*.csv
+!sample-data/*.csv
+
+# Sensitive configuration
+config/production/
+config/credentials/
+*.key
+*.pem
+*.crt
+secrets.yml
+secrets.properties
+
+# Redis
+dump.rdb
+appendonly.aof
+
+# Node (if using any frontend)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# Python (for any scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+ENV/
+env/
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Misc
+.history/
+.cache/
