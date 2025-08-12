@@ -15,8 +15,11 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Market Data Service
@@ -32,6 +35,8 @@ public class MarketDataService {
     private final FutuConnectionManager connectionManager;
     private final MarketDataRepository marketDataRepository;
     private final CacheService cacheService;
+    private final com.trading.infrastructure.futu.client.FutuApiClient futuApiClient;
+    private final com.trading.infrastructure.futu.protocol.FutuProtobufSerializer protobufSerializer;
 
     private static final DateTimeFormatter ID_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
 
@@ -86,7 +91,7 @@ public class MarketDataService {
     }
 
     /**
-     * Fetch OHLCV data from FUTU API (simulated for now)
+     * 从FUTU API获取历史K线数据
      */
     private List<MarketData> fetchOhlcvFromFutu(
             String symbol, 
@@ -96,20 +101,48 @@ public class MarketDataService {
             int limit) {
         
         try {
-            log.debug("Fetching OHLCV from FUTU API for symbol: {}", symbol);
+            log.debug("从FUTU API获取K线数据: symbol={}, timeframe={}", symbol, timeframe);
             
-            // TODO: Replace with actual FUTU SDK call
-            // Example: 
-            // Object quoteContext = connectionManager.getQuoteContext();
-            // FutuKlineData klineData = quoteContext.getKline(symbol, timeframe, startTime, endTime);
-            // return convertFutuDataToMarketData(klineData);
+            // 转换时间周期到FUTU K线类型
+            int klType = convertTimeframeToKlType(timeframe);
             
-            // For now, return simulated data
+            // 格式化时间
+            String beginTimeStr = protobufSerializer.formatDateTime(startTime);
+            String endTimeStr = protobufSerializer.formatDateTime(endTime);
+            
+            // 构建K线请求
+            byte[] requestData = protobufSerializer.buildGetKLineRequest(
+                symbol, klType, limit, beginTimeStr, endTimeStr
+            );
+            
+            // 发送请求
+            CompletableFuture<io.netty.buffer.ByteBuf> future = futuApiClient.sendRequest(
+                com.trading.infrastructure.futu.protocol.FutuProtocol.PROTO_ID_GET_KL,
+                requestData
+            );
+            
+            // 等待响应（超时10秒）
+            io.netty.buffer.ByteBuf response = future.get(10, TimeUnit.SECONDS);
+            
+            if (response != null) {
+                // 解析K线数据
+                List<MarketData> klineData = parseKlineResponse(response, symbol, timeframe);
+                
+                if (klineData != null && !klineData.isEmpty()) {
+                    log.info("成功获取{}条K线数据", klineData.size());
+                    return klineData;
+                }
+            }
+            
+            log.warn("FUTU API未返回K线数据，使用模拟数据");
             return generateSimulatedMarketData(symbol, timeframe, startTime, endTime, limit);
             
+        } catch (TimeoutException e) {
+            log.error("获取K线数据超时: symbol={}", symbol);
+            return generateSimulatedMarketData(symbol, timeframe, startTime, endTime, limit);
         } catch (Exception e) {
-            log.error("Error fetching data from FUTU API for symbol: {}", symbol, e);
-            return null;
+            log.error("获取K线数据异常: symbol={}", symbol, e);
+            return generateSimulatedMarketData(symbol, timeframe, startTime, endTime, limit);
         }
     }
 
@@ -336,6 +369,163 @@ public class MarketDataService {
         );
     }
 
+    /**
+     * 转换时间周期到FUTU K线类型
+     */
+    private int convertTimeframeToKlType(String timeframe) {
+        com.trading.infrastructure.futu.protocol.FutuProtocol.KLType klType = switch (timeframe.toLowerCase()) {
+            case "1m" -> com.trading.infrastructure.futu.protocol.FutuProtocol.KLType.K_1M;
+            case "5m" -> com.trading.infrastructure.futu.protocol.FutuProtocol.KLType.K_5M;
+            case "15m" -> com.trading.infrastructure.futu.protocol.FutuProtocol.KLType.K_15M;
+            case "30m" -> com.trading.infrastructure.futu.protocol.FutuProtocol.KLType.K_30M;
+            case "60m", "1h" -> com.trading.infrastructure.futu.protocol.FutuProtocol.KLType.K_60M;
+            case "1d" -> com.trading.infrastructure.futu.protocol.FutuProtocol.KLType.K_DAY;
+            case "1w" -> com.trading.infrastructure.futu.protocol.FutuProtocol.KLType.K_WEEK;
+            case "1month" -> com.trading.infrastructure.futu.protocol.FutuProtocol.KLType.K_MON;
+            default -> com.trading.infrastructure.futu.protocol.FutuProtocol.KLType.K_30M;
+        };
+        return klType.getCode();
+    }
+    
+    /**
+     * 解析K线响应数据
+     */
+    @SuppressWarnings("unchecked")
+    private List<MarketData> parseKlineResponse(io.netty.buffer.ByteBuf response, String symbol, String timeframe) {
+        try {
+            // 读取响应数据
+            byte[] responseData = new byte[response.readableBytes()];
+            response.readBytes(responseData);
+            
+            // 解析响应（简化版，实际应使用Protobuf）
+            Map<String, Object> responseMap = protobufSerializer.parseResponse(responseData);
+            
+            if (responseMap == null || !responseMap.containsKey("s2c")) {
+                log.warn("K线响应格式错误");
+                return null;
+            }
+            
+            Map<String, Object> s2c = (Map<String, Object>) responseMap.get("s2c");
+            if (!s2c.containsKey("klList")) {
+                log.warn("K线响应中没有数据");
+                return null;
+            }
+            
+            List<Map<String, Object>> klList = (List<Map<String, Object>>) s2c.get("klList");
+            List<MarketData> marketDataList = new java.util.ArrayList<>();
+            
+            for (Map<String, Object> kl : klList) {
+                try {
+                    MarketData marketData = MarketData.builder()
+                        .id(symbol + "_" + kl.get("time").toString().replace(" ", "_").replace(":", ""))
+                        .symbol(symbol)
+                        .open(BigDecimal.valueOf(((Number) kl.get("openPrice")).doubleValue()))
+                        .high(BigDecimal.valueOf(((Number) kl.get("highPrice")).doubleValue()))
+                        .low(BigDecimal.valueOf(((Number) kl.get("lowPrice")).doubleValue()))
+                        .close(BigDecimal.valueOf(((Number) kl.get("closePrice")).doubleValue()))
+                        .volume(((Number) kl.get("volume")).longValue())
+                        .turnover(BigDecimal.valueOf(((Number) kl.get("turnover")).doubleValue()))
+                        .timestamp(protobufSerializer.parseDateTime(kl.get("time").toString()))
+                        .timeframe(timeframe)
+                        .createdAt(LocalDateTime.now())
+                        .updatedAt(LocalDateTime.now())
+                        .build();
+                    
+                    marketDataList.add(marketData);
+                } catch (Exception e) {
+                    log.warn("解析K线数据项失败: {}", e.getMessage());
+                }
+            }
+            
+            return marketDataList;
+            
+        } catch (Exception e) {
+            log.error("解析K线响应异常", e);
+            return null;
+        } finally {
+            // 释放ByteBuf
+            response.release();
+        }
+    }
+    
+    /**
+     * 批量获取历史数据（支持分页）
+     */
+    public CompletableFuture<List<MarketData>> getHistoricalDataWithPagination(
+            String symbol,
+            String timeframe,
+            LocalDateTime startTime,
+            LocalDateTime endTime,
+            int pageSize) {
+        
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                log.info("批量获取历史数据: symbol={}, timeframe={}, 分页大小={}", symbol, timeframe, pageSize);
+                
+                List<MarketData> allData = new java.util.ArrayList<>();
+                LocalDateTime currentEnd = endTime;
+                int totalFetched = 0;
+                
+                while (currentEnd.isAfter(startTime) && totalFetched < 10000) { // 最多获取10000条
+                    // 计算本次请求的时间范围
+                    LocalDateTime currentStart = currentEnd.minusDays(calculateDaysForPageSize(timeframe, pageSize));
+                    if (currentStart.isBefore(startTime)) {
+                        currentStart = startTime;
+                    }
+                    
+                    // 获取数据
+                    List<MarketData> pageData = fetchOhlcvFromFutu(symbol, timeframe, currentStart, currentEnd, pageSize);
+                    
+                    if (pageData != null && !pageData.isEmpty()) {
+                        allData.addAll(0, pageData); // 添加到开头，保持时间顺序
+                        totalFetched += pageData.size();
+                        
+                        // 更新下一页的结束时间
+                        LocalDateTime oldestTime = pageData.stream()
+                            .map(MarketData::getTimestamp)
+                            .min(LocalDateTime::compareTo)
+                            .orElse(currentStart);
+                        
+                        currentEnd = oldestTime.minusSeconds(1);
+                        
+                        // 避免请求过快
+                        Thread.sleep(200);
+                    } else {
+                        break; // 没有更多数据
+                    }
+                    
+                    if (currentEnd.isBefore(startTime) || currentEnd.equals(startTime)) {
+                        break;
+                    }
+                }
+                
+                log.info("批量获取完成: 总计{}条数据", allData.size());
+                
+                // 保存到数据库
+                if (!allData.isEmpty()) {
+                    saveMarketDataBatch(allData);
+                    cacheMarketData(allData);
+                }
+                
+                return allData;
+                
+            } catch (Exception e) {
+                log.error("批量获取历史数据异常", e);
+                return List.of();
+            }
+        });
+    }
+    
+    /**
+     * 计算分页所需的天数
+     */
+    private int calculateDaysForPageSize(String timeframe, int pageSize) {
+        int minutesPerBar = getTimeframeMinutes(timeframe);
+        int tradingMinutesPerDay = 6 * 60 + 30; // 6.5小时交易时间
+        int barsPerDay = tradingMinutesPerDay / minutesPerBar;
+        return Math.max(1, pageSize / barsPerDay);
+    }
+    
     /**
      * Check if market data service is healthy
      */

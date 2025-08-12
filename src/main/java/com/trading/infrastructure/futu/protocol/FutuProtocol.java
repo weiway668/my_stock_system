@@ -26,6 +26,14 @@ public class FutuProtocol {
     public static final int PROTO_ID_GET_ORDER_BOOK = 3012;    // 获取买卖盘
     public static final int PROTO_ID_GET_BROKER_QUEUE = 3014;  // 获取经纪队列
     
+    // 协议ID定义 - 推送协议
+    public static final int PROTO_ID_PUSH_BASIC_QOT = 3005;    // 推送基本行情
+    public static final int PROTO_ID_PUSH_KL = 3007;           // 推送K线
+    public static final int PROTO_ID_PUSH_RT = 3009;           // 推送分时
+    public static final int PROTO_ID_PUSH_TICKER = 3011;       // 推送逐笔
+    public static final int PROTO_ID_PUSH_ORDERBOOK = 3013;    // 推送买卖盘
+    public static final int PROTO_ID_PUSH_BROKER = 3015;       // 推送经纪队列
+    
     // 协议ID定义 - 交易协议
     public static final int PROTO_ID_GET_ACC_LIST = 2001;      // 获取账户列表
     public static final int PROTO_ID_UNLOCK_TRADE = 2005;      // 解锁交易

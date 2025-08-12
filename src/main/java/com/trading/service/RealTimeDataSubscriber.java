@@ -32,6 +32,7 @@ public class RealTimeDataSubscriber {
     private final QuoteService quoteService;
     private final MarketDataService marketDataService;
     private final ApplicationEventPublisher eventPublisher;
+    private final com.trading.infrastructure.futu.client.FutuApiClient futuApiClient;
 
     // Subscription management
     private final Map<String, DataSubscription> activeSubscriptions = new ConcurrentHashMap<>();
@@ -198,41 +199,77 @@ public class RealTimeDataSubscriber {
     }
 
     /**
-     * Subscribe to K-line data (simulated)
+     * 订阅K线数据
      */
     private boolean subscribeToKlines(String symbol) {
         try {
-            log.debug("Subscribing to K-line data for symbol: {}", symbol);
+            log.debug("订阅K线数据: symbol={}", symbol);
             
-            // TODO: Replace with actual FUTU SDK K-line subscription
-            // Example: quoteContext.subscribeKLine(symbol, KLType.K_1M, true);
+            // 构建K线订阅请求
+            byte[] subscribeData = buildKlineSubscribeRequest(symbol);
             
-            // For now, simulate successful subscription
-            cacheService.cache("kline_sub:" + symbol, true, 3600);
-            return true;
+            // 发送订阅请求
+            CompletableFuture<io.netty.buffer.ByteBuf> future = futuApiClient.sendRequest(
+                com.trading.infrastructure.futu.protocol.FutuProtocol.PROTO_ID_SUB,
+                subscribeData
+            );
+            
+            // 等待响应
+            io.netty.buffer.ByteBuf response = future.get(SUBSCRIPTION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            
+            if (response != null) {
+                // 注册K线推送处理器
+                registerKlinePushHandler(symbol);
+                
+                // 缓存订阅状态
+                cacheService.cache("kline_sub:" + symbol, true, 3600);
+                
+                log.info("成功订阅K线数据: {}", symbol);
+                return true;
+            }
+            
+            return false;
             
         } catch (Exception e) {
-            log.error("Failed to subscribe to K-line data for symbol: {}", symbol, e);
+            log.error("订阅K线数据失败: symbol={}", symbol, e);
             return false;
         }
     }
 
     /**
-     * Subscribe to order book data (simulated)
+     * 订阅买卖盘数据
      */
     private boolean subscribeToOrderBook(String symbol) {
         try {
-            log.debug("Subscribing to order book for symbol: {}", symbol);
+            log.debug("订阅买卖盘数据: symbol={}", symbol);
             
-            // TODO: Replace with actual FUTU SDK order book subscription
-            // Example: quoteContext.subscribeOrderBook(symbol, true);
+            // 构建买卖盘订阅请求
+            byte[] subscribeData = buildOrderBookSubscribeRequest(symbol);
             
-            // For now, simulate successful subscription
-            cacheService.cache("orderbook_sub:" + symbol, true, 3600);
-            return true;
+            // 发送订阅请求
+            CompletableFuture<io.netty.buffer.ByteBuf> future = futuApiClient.sendRequest(
+                com.trading.infrastructure.futu.protocol.FutuProtocol.PROTO_ID_SUB,
+                subscribeData
+            );
+            
+            // 等待响应
+            io.netty.buffer.ByteBuf response = future.get(SUBSCRIPTION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            
+            if (response != null) {
+                // 注册买卖盘推送处理器
+                registerOrderBookPushHandler(symbol);
+                
+                // 缓存订阅状态
+                cacheService.cache("orderbook_sub:" + symbol, true, 3600);
+                
+                log.info("成功订阅买卖盘数据: {}", symbol);
+                return true;
+            }
+            
+            return false;
             
         } catch (Exception e) {
-            log.error("Failed to subscribe to order book for symbol: {}", symbol, e);
+            log.error("订阅买卖盘数据失败: symbol={}", symbol, e);
             return false;
         }
     }
@@ -533,6 +570,176 @@ public class RealTimeDataSubscriber {
         private boolean connectionHealthy;
         private boolean subscriberActive;
         private Map<String, DataSubscription> subscriptionDetails;
+    }
+    
+    /**
+     * 构建K线订阅请求
+     */
+    private byte[] buildKlineSubscribeRequest(String symbol) {
+        // 使用1分钟K线作为默认
+        Map<String, Object> request = new java.util.HashMap<>();
+        Map<String, Object> c2s = new java.util.HashMap<>();
+        
+        Map<String, Object> security = new java.util.HashMap<>();
+        security.put("market", getMarketCode(symbol));
+        security.put("code", getStockCode(symbol));
+        
+        c2s.put("securityList", new Object[]{security});
+        c2s.put("subTypeList", new int[]{com.trading.infrastructure.futu.protocol.FutuProtocol.SubType.K_LINE.getCode()});
+        c2s.put("isSubOrUnSub", true);
+        c2s.put("isRegOrUnRegPush", true);
+        
+        request.put("c2s", c2s);
+        
+        return new com.google.gson.Gson().toJson(request).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
+    
+    /**
+     * 构建买卖盘订阅请求
+     */
+    private byte[] buildOrderBookSubscribeRequest(String symbol) {
+        Map<String, Object> request = new java.util.HashMap<>();
+        Map<String, Object> c2s = new java.util.HashMap<>();
+        
+        Map<String, Object> security = new java.util.HashMap<>();
+        security.put("market", getMarketCode(symbol));
+        security.put("code", getStockCode(symbol));
+        
+        c2s.put("securityList", new Object[]{security});
+        c2s.put("subTypeList", new int[]{com.trading.infrastructure.futu.protocol.FutuProtocol.SubType.ORDER_BOOK.getCode()});
+        c2s.put("isSubOrUnSub", true);
+        c2s.put("isRegOrUnRegPush", true);
+        
+        request.put("c2s", c2s);
+        
+        return new com.google.gson.Gson().toJson(request).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
+    
+    /**
+     * 注册K线推送处理器
+     */
+    private void registerKlinePushHandler(String symbol) {
+        futuApiClient.registerPushHandler(
+            com.trading.infrastructure.futu.protocol.FutuProtocol.PROTO_ID_PUSH_KL,
+            data -> handleKlinePush(symbol, data)
+        );
+    }
+    
+    /**
+     * 注册买卖盘推送处理器
+     */
+    private void registerOrderBookPushHandler(String symbol) {
+        futuApiClient.registerPushHandler(
+            com.trading.infrastructure.futu.protocol.FutuProtocol.PROTO_ID_PUSH_ORDERBOOK,
+            data -> handleOrderBookPush(symbol, data)
+        );
+    }
+    
+    /**
+     * 处理K线推送数据
+     */
+    private void handleKlinePush(String symbol, io.netty.buffer.ByteBuf data) {
+        try {
+            // 解析推送数据
+            byte[] bytes = new byte[data.readableBytes()];
+            data.readBytes(bytes);
+            
+            // 简化处理：这里应该使用Protobuf解析
+            log.debug("收到K线推送: symbol={}", symbol);
+            
+            // 更新订阅统计
+            DataSubscription subscription = activeSubscriptions.get(symbol + "_KLINES");
+            if (subscription != null) {
+                subscription.recordUpdate();
+            }
+            
+            // 发布K线更新事件
+            publishKlineUpdateEvent(symbol, bytes);
+            
+        } catch (Exception e) {
+            log.error("处理K线推送失败: symbol={}", symbol, e);
+        } finally {
+            data.release();
+        }
+    }
+    
+    /**
+     * 处理买卖盘推送数据
+     */
+    private void handleOrderBookPush(String symbol, io.netty.buffer.ByteBuf data) {
+        try {
+            // 解析推送数据
+            byte[] bytes = new byte[data.readableBytes()];
+            data.readBytes(bytes);
+            
+            // 简化处理：这里应该使用Protobuf解析
+            log.debug("收到买卖盘推送: symbol={}", symbol);
+            
+            // 更新订阅统计
+            DataSubscription subscription = activeSubscriptions.get(symbol + "_ORDER_BOOK");
+            if (subscription != null) {
+                subscription.recordUpdate();
+            }
+            
+            // 发布买卖盘更新事件
+            publishOrderBookUpdateEvent(symbol, bytes);
+            
+        } catch (Exception e) {
+            log.error("处理买卖盘推送失败: symbol={}", symbol, e);
+        } finally {
+            data.release();
+        }
+    }
+    
+    /**
+     * 发布K线更新事件
+     */
+    private void publishKlineUpdateEvent(String symbol, byte[] data) {
+        try {
+            // TODO: 创建并发布KlineUpdateEvent
+            log.trace("发布K线更新事件: symbol={}", symbol);
+        } catch (Exception e) {
+            log.warn("发布K线更新事件失败", e);
+        }
+    }
+    
+    /**
+     * 发布买卖盘更新事件
+     */
+    private void publishOrderBookUpdateEvent(String symbol, byte[] data) {
+        try {
+            // TODO: 创建并发布OrderBookUpdateEvent
+            log.trace("发布买卖盘更新事件: symbol={}", symbol);
+        } catch (Exception e) {
+            log.warn("发布买卖盘更新事件失败", e);
+        }
+    }
+    
+    /**
+     * 获取市场代码
+     */
+    private int getMarketCode(String symbol) {
+        if (symbol.endsWith(".HK")) {
+            return 1; // 香港市场
+        } else if (symbol.endsWith(".US")) {
+            return 11; // 美国市场
+        } else if (symbol.endsWith(".SH")) {
+            return 21; // 上海市场
+        } else if (symbol.endsWith(".SZ")) {
+            return 22; // 深圳市场
+        }
+        return 1; // 默认香港市场
+    }
+    
+    /**
+     * 获取纯股票代码
+     */
+    private String getStockCode(String symbol) {
+        int dotIndex = symbol.lastIndexOf('.');
+        if (dotIndex > 0) {
+            return symbol.substring(0, dotIndex);
+        }
+        return symbol;
     }
     
     /**

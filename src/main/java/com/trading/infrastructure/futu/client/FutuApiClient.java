@@ -69,6 +69,14 @@ public class FutuApiClient {
         void handlePush(ByteBuf data);
     }
     
+    /**
+     * 注册推送处理器
+     */
+    public void registerPushHandler(int protoId, PushHandler handler) {
+        pushHandlers.put(protoId, handler);
+        log.debug("注册推送处理器: protoId={}", protoId);
+    }
+    
     @PostConstruct
     public void init() {
         log.info("初始化FUTU API客户端...");
