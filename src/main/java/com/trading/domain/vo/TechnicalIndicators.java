@@ -58,6 +58,12 @@ public class TechnicalIndicators {
     private BigDecimal advanceDeclineRatio; // Advance/Decline ratio
     private BigDecimal mcclellanOscillator; // McClellan Oscillator
     
+    // Additional indicators
+    private BigDecimal ema12;       // 12-period Exponential Moving Average
+    private BigDecimal stochasticK; // Stochastic K (alias for stochK)
+    private BigDecimal stochasticD; // Stochastic D (alias for stochD)
+    private java.time.LocalDateTime calculatedAt; // Timestamp of calculation
+    
     // Business methods
     
     /**

@@ -40,4 +40,6 @@ public interface OrderRepository extends JpaRepository<Order, String> {
     
     @Query("SELECT DISTINCT o.symbol FROM Order o WHERE o.createdAt >= :startTime")
     List<String> findActiveSymbols(@Param("startTime") LocalDateTime startTime);
+    
+    List<Order> findByAccountIdAndCreateTimeAfter(String accountId, LocalDateTime createTime);
 }

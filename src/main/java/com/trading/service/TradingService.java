@@ -20,8 +20,11 @@ import jakarta.annotation.PostConstruct;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -45,6 +48,7 @@ public class TradingService {
     private final PositionRepository positionRepository;
     private final CacheService cacheService;
     private final ApplicationEventPublisher eventPublisher;
+    private final com.trading.infrastructure.futu.protocol.FutuProtobufSerializer protobufSerializer;
 
     // 交易执行器和监控
     private final ScheduledExecutorService tradingExecutor = Executors.newScheduledThreadPool(4);
@@ -808,6 +812,235 @@ public class TradingService {
                 .approved(false)
                 .reason(reason)
                 .build();
+        }
+    }
+    
+    // 辅助方法
+    
+    /**
+     * 转换订单方向
+     */
+    private int convertOrderSide(OrderSide side) {
+        return switch (side) {
+            case BUY -> 1;  // 买入
+            case SELL -> 2; // 卖出
+            default -> 0;   // 未知
+        };
+    }
+    
+    /**
+     * 转换订单类型
+     */
+    private int convertOrderType(OrderType type) {
+        return switch (type) {
+            case MARKET -> 2;  // 市价单
+            case LIMIT -> 3;   // 限价单
+            default -> 1;      // 普通订单
+        };
+    }
+    
+    /**
+     * 获取市场代码
+     */
+    private int getMarketCode(String symbol) {
+        if (symbol.endsWith(".HK")) {
+            return 1; // 香港市场
+        } else if (symbol.endsWith(".US")) {
+            return 11; // 美国市场
+        } else if (symbol.endsWith(".SH")) {
+            return 21; // 上海市场
+        } else if (symbol.endsWith(".SZ")) {
+            return 22; // 深圳市场
+        }
+        return 1; // 默认香港市场
+    }
+    
+    /**
+     * 获取默认账户ID
+     */
+    private String getDefaultAccountId() {
+        // TODO: 从配置或API获取真实账户ID
+        return "DEFAULT_ACCOUNT";
+    }
+    
+    /**
+     * 检查是否模拟环境
+     */
+    private boolean isSimulationMode() {
+        // TODO: 从配置获取
+        return true;
+    }
+    
+    /**
+     * 哈希密码
+     */
+    private String hashPassword(String password) {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+            byte[] hash = md.digest(password.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (Exception e) {
+            log.error("密码哈希失败", e);
+            return password;
+        }
+    }
+    
+    /**
+     * 解析下单响应
+     */
+    @SuppressWarnings("unchecked")
+    private boolean parseOrderResponse(io.netty.buffer.ByteBuf response, Order order) {
+        try {
+            byte[] responseData = new byte[response.readableBytes()];
+            response.readBytes(responseData);
+            
+            Map<String, Object> responseMap = protobufSerializer.parseResponse(responseData);
+            
+            if (responseMap != null && responseMap.containsKey("s2c")) {
+                Map<String, Object> s2c = (Map<String, Object>) responseMap.get("s2c");
+                if (s2c.containsKey("orderID")) {
+                    order.setFutuOrderId(s2c.get("orderID").toString());
+                    return true;
+                }
+            }
+            
+            return false;
+        } catch (Exception e) {
+            log.error("解析下单响应失败", e);
+            return false;
+        }
+    }
+    
+    /**
+     * 解析取消响应
+     */
+    @SuppressWarnings("unchecked")
+    private boolean parseCancelResponse(io.netty.buffer.ByteBuf response) {
+        try {
+            byte[] responseData = new byte[response.readableBytes()];
+            response.readBytes(responseData);
+            
+            Map<String, Object> responseMap = new com.google.gson.Gson().fromJson(
+                new String(responseData, java.nio.charset.StandardCharsets.UTF_8),
+                Map.class
+            );
+            
+            return responseMap != null && responseMap.containsKey("s2c");
+        } catch (Exception e) {
+            log.error("解析取消响应失败", e);
+            return false;
+        }
+    }
+    
+    /**
+     * 解析账户信息响应
+     */
+    @SuppressWarnings("unchecked")
+    private AccountInfo parseAccountInfoResponse(io.netty.buffer.ByteBuf response, String accountId) {
+        try {
+            byte[] responseData = new byte[response.readableBytes()];
+            response.readBytes(responseData);
+            
+            Map<String, Object> responseMap = new com.google.gson.Gson().fromJson(
+                new String(responseData, java.nio.charset.StandardCharsets.UTF_8),
+                Map.class
+            );
+            
+            if (responseMap != null && responseMap.containsKey("s2c")) {
+                Map<String, Object> s2c = (Map<String, Object>) responseMap.get("s2c");
+                if (s2c.containsKey("funds")) {
+                    Map<String, Object> funds = (Map<String, Object>) s2c.get("funds");
+                    
+                    return AccountInfo.builder()
+                        .accountId(accountId)
+                        .totalAssets(BigDecimal.valueOf(((Number) funds.getOrDefault("totalAssets", 0)).doubleValue()))
+                        .availableCash(BigDecimal.valueOf(((Number) funds.getOrDefault("cash", 0)).doubleValue()))
+                        .marketValue(BigDecimal.valueOf(((Number) funds.getOrDefault("marketVal", 0)).doubleValue()))
+                        .currency(funds.getOrDefault("currency", "HKD").toString())
+                        .lastUpdated(LocalDateTime.now())
+                        .build();
+                }
+            }
+            
+            return null;
+        } catch (Exception e) {
+            log.error("解析账户信息响应失败", e);
+            return null;
+        }
+    }
+    
+    /**
+     * 解析持仓响应
+     */
+    @SuppressWarnings("unchecked")
+    private List<Position> parsePositionsResponse(io.netty.buffer.ByteBuf response, String accountId) {
+        try {
+            byte[] responseData = new byte[response.readableBytes()];
+            response.readBytes(responseData);
+            
+            Map<String, Object> responseMap = new com.google.gson.Gson().fromJson(
+                new String(responseData, java.nio.charset.StandardCharsets.UTF_8),
+                Map.class
+            );
+            
+            if (responseMap != null && responseMap.containsKey("s2c")) {
+                Map<String, Object> s2c = (Map<String, Object>) responseMap.get("s2c");
+                if (s2c.containsKey("positionList")) {
+                    List<Map<String, Object>> positionList = (List<Map<String, Object>>) s2c.get("positionList");
+                    
+                    List<Position> positions = new java.util.ArrayList<>();
+                    for (Map<String, Object> pos : positionList) {
+                        Position position = Position.builder()
+                            .id("POS_" + pos.get("code"))
+                            .symbol(pos.get("code") + ".HK")
+                            .accountId(accountId)
+                            .quantity(((Number) pos.getOrDefault("qty", 0)).intValue())
+                            .avgCost(BigDecimal.valueOf(((Number) pos.getOrDefault("costPrice", 0)).doubleValue()))
+                            .currentPrice(BigDecimal.valueOf(((Number) pos.getOrDefault("price", 0)).doubleValue()))
+                            .marketValue(BigDecimal.valueOf(((Number) pos.getOrDefault("val", 0)).doubleValue()))
+                            .unrealizedPnl(BigDecimal.valueOf(((Number) pos.getOrDefault("plVal", 0)).doubleValue()))
+                            .realizedPnl(BigDecimal.ZERO)
+                            .lastUpdateTime(LocalDateTime.now())
+                            .build();
+                        
+                        positions.add(position);
+                    }
+                    
+                    return positions;
+                }
+            }
+            
+            return List.of();
+        } catch (Exception e) {
+            log.error("解析持仓响应失败", e);
+            return List.of();
+        }
+    }
+    
+    /**
+     * 解析解锁响应
+     */
+    @SuppressWarnings("unchecked")
+    private boolean parseUnlockResponse(io.netty.buffer.ByteBuf response) {
+        try {
+            byte[] responseData = new byte[response.readableBytes()];
+            response.readBytes(responseData);
+            
+            Map<String, Object> responseMap = new com.google.gson.Gson().fromJson(
+                new String(responseData, java.nio.charset.StandardCharsets.UTF_8),
+                Map.class
+            );
+            
+            return responseMap != null && responseMap.containsKey("s2c");
+        } catch (Exception e) {
+            log.error("解析解锁响应失败", e);
+            return false;
         }
     }
 }

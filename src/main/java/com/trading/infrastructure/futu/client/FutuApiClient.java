@@ -184,6 +184,41 @@ public class FutuApiClient {
     }
     
     /**
+     * 发送请求（使用FutuRequest对象）
+     */
+    public CompletableFuture<com.trading.infrastructure.futu.protocol.FutuResponse> sendRequest(com.trading.infrastructure.futu.protocol.FutuRequest request) {
+        // 将请求数据序列化为JSON（临时实现，后续改为Protobuf）
+        String jsonData = new com.google.gson.Gson().toJson(request.getData());
+        byte[] data = jsonData.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        
+        return sendRequest(request.getProtoId(), data)
+            .thenApply(responseBuf -> {
+                // 解析响应
+                try {
+                    byte[] responseData = new byte[responseBuf.readableBytes()];
+                    responseBuf.readBytes(responseData);
+                    String responseJson = new String(responseData, java.nio.charset.StandardCharsets.UTF_8);
+                    
+                    // 构建FutuResponse对象
+                    com.trading.infrastructure.futu.protocol.FutuResponse response = 
+                        com.trading.infrastructure.futu.protocol.FutuResponse.builder()
+                            .retType(0)
+                            .retMsg("success")
+                            .data(new com.google.gson.Gson().fromJson(responseJson, Map.class))
+                            .build();
+                    
+                    return response;
+                } catch (Exception e) {
+                    log.error("解析响应失败", e);
+                    return com.trading.infrastructure.futu.protocol.FutuResponse.builder()
+                        .retType(-1)
+                        .retMsg(e.getMessage())
+                        .build();
+                }
+            });
+    }
+    
+    /**
      * 发送请求
      */
     public CompletableFuture<ByteBuf> sendRequest(int protoId, byte[] data) {

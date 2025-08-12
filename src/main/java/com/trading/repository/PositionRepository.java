@@ -15,4 +15,5 @@ public interface PositionRepository extends JpaRepository<Position, String> {
     Optional<Position> findBySymbolAndAccountId(String symbol, String accountId);
     List<Position> findByAccountId(String accountId);
     List<Position> findBySymbol(String symbol);
+    Optional<Position> findByAccountIdAndSymbol(String accountId, String symbol);
 }

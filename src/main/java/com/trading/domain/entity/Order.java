@@ -36,6 +36,9 @@ public class Order {
     @Column(length = 50)
     private String orderId;
     
+    @Column(name = "futu_order_id", length = 50)
+    private String futuOrderId;  // FUTU API返回的订单ID
+    
     @Column(nullable = false, length = 20)
     private String symbol;
     

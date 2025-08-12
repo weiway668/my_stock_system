@@ -261,16 +261,94 @@ public class OrderExecutionService {
             try {
                 log.info("执行VWAP策略: orderId={}, 参考周期={}分钟", orderId, vwapParams.getLookbackMinutes());
 
-                // TODO: 实现VWAP算法
-                // 1. 获取历史成交量数据
-                // 2. 计算成交量分布曲线
-                // 3. 按成交量比例分配执行
-                // 4. 动态调整执行节奏
+                Optional<Order> orderOpt = orderRepository.findById(orderId);
+                if (orderOpt.isEmpty()) {
+                    return ExecutionResult.failure("订单不存在");
+                }
+
+                Order order = orderOpt.get();
+                
+                // 获取历史成交量分布
+                List<VolumeProfile> volumeProfile = getHistoricalVolumeProfile(
+                    order.getSymbol(), 
+                    vwapParams.getLookbackMinutes()
+                );
+                
+                if (volumeProfile.isEmpty()) {
+                    log.warn("无法获取成交量分布，降级到TWAP策略");
+                    return executeTwap(orderId, TwapParameters.builder()
+                        .durationMinutes(vwapParams.getLookbackMinutes())
+                        .build()).get();
+                }
+                
+                // 计算总成交量
+                long totalVolume = volumeProfile.stream()
+                    .mapToLong(VolumeProfile::getVolume)
+                    .sum();
+                
+                // 按成交量比例分配订单
+                int remainingQuantity = order.getQuantity();
+                int executedQuantity = 0;
+                BigDecimal totalValue = BigDecimal.ZERO;
+                
+                log.debug("VWAP执行计划: 总量={}, 分片数={}", order.getQuantity(), volumeProfile.size());
+                
+                for (VolumeProfile profile : volumeProfile) {
+                    if (remainingQuantity <= 0) break;
+                    
+                    // 计算该时段应执行的数量
+                    double volumeRatio = (double) profile.getVolume() / totalVolume;
+                    int targetQuantity = (int) (order.getQuantity() * volumeRatio * 
+                        vwapParams.getParticipationRate());
+                    
+                    // 确保不超过剩余数量
+                    int currentQuantity = Math.min(targetQuantity, remainingQuantity);
+                    
+                    if (currentQuantity > 0) {
+                        // 执行该时段的订单
+                        SliceExecutionResult sliceResult = executeSliceWithTiming(
+                            order, 
+                            currentQuantity,
+                            profile.getTypicalPrice()
+                        );
+                        
+                        if (sliceResult.isSuccess()) {
+                            executedQuantity += sliceResult.getExecutedQuantity();
+                            totalValue = totalValue.add(sliceResult.getExecutedValue());
+                            remainingQuantity -= sliceResult.getExecutedQuantity();
+                            
+                            log.debug("VWAP分片执行: 时段={}, 数量={}, 价格={}", 
+                                profile.getTimeSlot(), 
+                                sliceResult.getExecutedQuantity(), 
+                                sliceResult.getExecutedPrice());
+                        }
+                    }
+                    
+                    // 动态调整执行节奏
+                    if (volumeProfile.indexOf(profile) < volumeProfile.size() - 1) {
+                        try {
+                            Thread.sleep(calculateVwapInterval(vwapParams, volumeProfile.size()));
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
+                    }
+                }
+                
+                // 更新订单执行结果
+                updateOrderExecution(order, executedQuantity, totalValue);
+                
+                BigDecimal avgPrice = executedQuantity > 0 ? 
+                    totalValue.divide(BigDecimal.valueOf(executedQuantity), 4, RoundingMode.HALF_UP) : 
+                    BigDecimal.ZERO;
 
                 return ExecutionResult.builder()
-                    .success(true)
+                    .success(executedQuantity > 0)
                     .orderId(orderId)
-                    .message("VWAP执行策略（待完善）")
+                    .executedQuantity(executedQuantity)
+                    .executedPrice(avgPrice)
+                    .executedValue(totalValue)
+                    .message(String.format("VWAP执行完成: 执行数量=%d, VWAP=%.4f", executedQuantity, avgPrice))
                     .build();
 
             } catch (Exception e) {
@@ -682,6 +760,85 @@ public class OrderExecutionService {
     }
 
     /**
+     * 获取历史成交量分布
+     */
+    private List<VolumeProfile> getHistoricalVolumeProfile(String symbol, int lookbackMinutes) {
+        try {
+            LocalDateTime endTime = LocalDateTime.now();
+            LocalDateTime startTime = endTime.minusMinutes(lookbackMinutes);
+            
+            // 从MarketDataService获取历史数据
+            List<com.trading.domain.entity.MarketData> historicalData = 
+                marketDataService.getOhlcvData(symbol, "1m", startTime, endTime, lookbackMinutes)
+                    .get(5, TimeUnit.SECONDS);
+            
+            if (historicalData == null || historicalData.isEmpty()) {
+                return List.of();
+            }
+            
+            // 构建成交量分布
+            return historicalData.stream()
+                .map(data -> VolumeProfile.builder()
+                    .timeSlot(data.getTimestamp())
+                    .volume(data.getVolume())
+                    .typicalPrice(calculateTypicalPrice(data))
+                    .build())
+                .collect(java.util.stream.Collectors.toList());
+            
+        } catch (Exception e) {
+            log.error("获取历史成交量分布失败: symbol={}", symbol, e);
+            return List.of();
+        }
+    }
+    
+    /**
+     * 计算典型价格 (High + Low + Close) / 3
+     */
+    private BigDecimal calculateTypicalPrice(com.trading.domain.entity.MarketData data) {
+        return data.getHigh()
+            .add(data.getLow())
+            .add(data.getClose())
+            .divide(BigDecimal.valueOf(3), 4, RoundingMode.HALF_UP);
+    }
+    
+    /**
+     * 执行订单分片（带时机控制）
+     */
+    private SliceExecutionResult executeSliceWithTiming(Order order, int quantity, BigDecimal targetPrice) {
+        try {
+            // 获取当前市场价格
+            BigDecimal currentPrice = getCurrentMarketPrice(order.getSymbol(), order.getSide());
+            
+            // 价格优化：如果当前价格更优，使用当前价格
+            BigDecimal executionPrice = currentPrice;
+            if (order.getSide() == OrderSide.BUY) {
+                // 买入：使用较低的价格
+                executionPrice = currentPrice.min(targetPrice);
+            } else {
+                // 卖出：使用较高的价格
+                executionPrice = currentPrice.max(targetPrice);
+            }
+            
+            return executeSliceAtPrice(order, quantity, executionPrice);
+            
+        } catch (Exception e) {
+            log.error("执行订单分片失败", e);
+            return SliceExecutionResult.failure("执行失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 计算VWAP执行间隔
+     */
+    private long calculateVwapInterval(VwapParameters params, int totalSlices) {
+        if (totalSlices <= 1) return 0;
+        
+        // 根据参考周期计算执行间隔
+        long totalMillis = params.getLookbackMinutes() * 60 * 1000L;
+        return totalMillis / (totalSlices - 1);
+    }
+    
+    /**
      * 计算平均执行时间
      */
     private double calculateAverageExecutionTime() {
@@ -854,5 +1011,16 @@ public class OrderExecutionService {
         private double successRate;
         private int activeStrategies;
         private double averageExecutionTime;
+    }
+    
+    /**
+     * 成交量分布数据
+     */
+    @lombok.Builder
+    @lombok.Data
+    public static class VolumeProfile {
+        private LocalDateTime timeSlot;
+        private long volume;
+        private BigDecimal typicalPrice;
     }
 }

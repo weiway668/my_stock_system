@@ -21,6 +21,7 @@ public class FutuProtocol {
     public static final int PROTO_ID_GET_SUB_INFO = 3003;      // 获取订阅信息
     public static final int PROTO_ID_GET_BASIC_QOT = 3004;     // 获取基本行情
     public static final int PROTO_ID_GET_KL = 3006;            // 获取K线
+    public static final int PROTO_ID_QOT_GETSTOCKPRICE = 3007; // 获取当前价格
     public static final int PROTO_ID_GET_RT_DATA = 3008;       // 获取分时数据
     public static final int PROTO_ID_GET_TICKER = 3010;        // 获取逐笔
     public static final int PROTO_ID_GET_ORDER_BOOK = 3012;    // 获取买卖盘
@@ -52,6 +53,13 @@ public class FutuProtocol {
     public static final int PROTO_ID_PUSH_KLINE_UPDATE = 3007; // K线更新推送
     public static final int PROTO_ID_PUSH_TICKER_UPDATE = 3011;// 逐笔更新推送
     public static final int PROTO_ID_PUSH_ORDER_BOOK_UPDATE = 3013; // 买卖盘更新推送
+    
+    // 市场常量
+    public static final int MARKET_UNKNOWN = 0;  // 未知
+    public static final int MARKET_HK = 1;       // 香港市场
+    public static final int MARKET_US = 11;      // 美国市场
+    public static final int MARKET_CN_SH = 21;   // 上海市场
+    public static final int MARKET_CN_SZ = 22;   // 深圳市场
     
     // 市场类型
     public enum Market {
