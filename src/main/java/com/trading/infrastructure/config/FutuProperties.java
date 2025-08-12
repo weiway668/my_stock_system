@@ -34,6 +34,21 @@ public class FutuProperties {
      * Trading account settings
      */
     private Account account = new Account();
+    
+    /**
+     * 行情订阅配置
+     */
+    private Quote quote = new Quote();
+    
+    /**
+     * 交易配置
+     */
+    private Trade trade = new Trade();
+    
+    /**
+     * API限流配置
+     */
+    private RateLimit rateLimit = new RateLimit();
 
     /**
      * Connection configuration
@@ -231,5 +246,73 @@ public class FutuProperties {
         } catch (IllegalArgumentException e) {
             return MarketRegion.HK; // default to HK
         }
+    }
+    
+    /**
+     * 行情订阅配置
+     */
+    @Data
+    public static class Quote {
+        /**
+         * 最大订阅数量
+         */
+        private int maxSubscriptions = 500;
+        
+        /**
+         * 批量处理大小
+         */
+        private int batchSize = 100;
+        
+        /**
+         * 是否启用推送
+         */
+        private boolean pushEnabled = true;
+    }
+    
+    /**
+     * 交易配置
+     */
+    @Data
+    public static class Trade {
+        /**
+         * 账户ID
+         */
+        private String accountId;
+        
+        /**
+         * 解锁密码（通过环境变量设置）
+         */
+        private String unlockPassword;
+        
+        /**
+         * 交易环境：SIMULATE或REAL
+         */
+        private String environment = "SIMULATE";
+        
+        /**
+         * 市场：HK|US|CN
+         */
+        private String market = "HK";
+    }
+    
+    /**
+     * API限流配置
+     */
+    @Data
+    public static class RateLimit {
+        /**
+         * 行情请求每秒限制
+         */
+        private int quotePerSecond = 30;
+        
+        /**
+         * 交易请求每秒限制
+         */
+        private int tradePerSecond = 10;
+        
+        /**
+         * 查询请求每秒限制
+         */
+        private int queryPerSecond = 20;
     }
 }

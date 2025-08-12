@@ -48,6 +48,22 @@ public class CacheService {
             log.warn("Failed to cache market data for symbol: {}", symbol, e);
         }
     }
+    
+    /**
+     * Cache quote data for a symbol
+     */
+    public void cacheQuote(String symbol, Object quote) {
+        String key = String.format("quote:%s", symbol);
+        try {
+            Cache cache = cacheManager.getCache(MARKET_DATA_CACHE);
+            if (cache != null) {
+                cache.put(key, quote);
+                log.debug("Cached quote for symbol: {}", symbol);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to cache quote for symbol: {}", symbol, e);
+        }
+    }
 
     /**
      * Get cached market data

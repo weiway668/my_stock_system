@@ -3,6 +3,12 @@ package com.trading.service;
 import com.trading.domain.entity.MarketData;
 import com.trading.infrastructure.cache.CacheService;
 import com.trading.infrastructure.futu.FutuConnectionManager;
+import com.trading.infrastructure.futu.client.FutuApiClient;
+import com.trading.infrastructure.futu.model.FutuQuote;
+import com.trading.infrastructure.futu.protocol.FutuProtocol;
+import com.trading.infrastructure.futu.protocol.FutuProtobufSerializer;
+import com.trading.infrastructure.config.FutuProperties;
+import io.netty.buffer.ByteBuf;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -29,8 +35,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class QuoteService {
 
     private final FutuConnectionManager connectionManager;
+    private final FutuApiClient futuApiClient;
     private final CacheService cacheService;
     private final ApplicationEventPublisher eventPublisher;
+    private final FutuProperties futuProperties;
+    private final FutuProtobufSerializer protobufSerializer;
 
     // Real-time quote management
     private final Map<String, QuoteSubscription> activeSubscriptions = new ConcurrentHashMap<>();
@@ -116,9 +125,8 @@ public class QuoteService {
 
                 log.info("Unsubscribing from real-time quotes for symbol: {}", symbol);
                 
-                // TODO: Replace with actual FUTU SDK unsubscription
-                // Example: quoteContext.unsubscribe(symbol, SubscriptionType.QUOTE);
-                boolean unsubscriptionResult = simulateQuoteUnsubscription(symbol);
+                // 使用FutuApiClient取消订阅
+                boolean unsubscriptionResult = unsubscribeFromFutuQuote(symbol);
                 
                 if (unsubscriptionResult) {
                     // Mark subscription as inactive
@@ -481,6 +489,118 @@ public class QuoteService {
                 return false;
             }
             return changePercent.abs().compareTo(threshold) > 0;
+        }
+    }
+    
+    /**
+     * 订阅FUTU行情数据
+     */
+    private boolean subscribeToFutuQuote(String symbol) {
+        try {
+            // 构建订阅请求数据
+            byte[] subscribeData = buildSubscribeRequest(symbol);
+            
+            // 发送订阅请求
+            CompletableFuture<ByteBuf> future = futuApiClient.sendRequest(
+                FutuProtocol.PROTO_ID_SUB, 
+                subscribeData
+            );
+            
+            // 等待响应
+            ByteBuf response = future.get(5, TimeUnit.SECONDS);
+            
+            // 解析响应（暂时简化处理）
+            if (response != null) {
+                log.debug("成功订阅行情: {}", symbol);
+                return true;
+            }
+            
+            return false;
+        } catch (Exception e) {
+            log.error("订阅行情失败: {}", symbol, e);
+            return false;
+        }
+    }
+    
+    /**
+     * 取消订阅FUTU行情数据
+     */
+    private boolean unsubscribeFromFutuQuote(String symbol) {
+        try {
+            // 构建取消订阅请求数据
+            byte[] unsubscribeData = buildUnsubscribeRequest(symbol);
+            
+            // 发送取消订阅请求
+            CompletableFuture<ByteBuf> future = futuApiClient.sendRequest(
+                FutuProtocol.PROTO_ID_UNSUB, 
+                unsubscribeData
+            );
+            
+            // 等待响应
+            ByteBuf response = future.get(5, TimeUnit.SECONDS);
+            
+            if (response != null) {
+                log.debug("成功取消订阅行情: {}", symbol);
+                return true;
+            }
+            
+            return false;
+        } catch (Exception e) {
+            log.error("取消订阅行情失败: {}", symbol, e);
+            return false;
+        }
+    }
+    
+    /**
+     * 构建订阅请求
+     */
+    private byte[] buildSubscribeRequest(String symbol) {
+        // 使用FutuProtobufSerializer构建请求
+        return protobufSerializer.buildSubscribeRequest(symbol, FutuProtocol.SubType.QUOTE.getCode());
+    }
+    
+    /**
+     * 构建取消订阅请求
+     */
+    private byte[] buildUnsubscribeRequest(String symbol) {
+        // 使用FutuProtobufSerializer构建请求
+        return protobufSerializer.buildUnsubscribeRequest(symbol, FutuProtocol.SubType.QUOTE.getCode());
+    }
+    
+    /**
+     * 处理行情推送数据
+     */
+    public void handleQuotePush(String symbol, FutuQuote quote) {
+        try {
+            // 转换为内部格式
+            RealtimeQuote realtimeQuote = RealtimeQuote.builder()
+                .symbol(symbol)
+                .currentPrice(quote.getLastPrice())
+                .previousClose(quote.getPreClosePrice())
+                .change(quote.getChangeValue())
+                .changePercent(quote.getChangeRate())
+                .high(quote.getHighPrice())
+                .low(quote.getLowPrice())
+                .volume(quote.getVolume())
+                .turnover(quote.getTurnover())
+                .timestamp(LocalDateTime.now())
+                .build();
+            
+            // 更新缓存
+            latestQuotes.put(symbol, realtimeQuote);
+            cacheService.cacheQuote(symbol, realtimeQuote);
+            
+            // 更新订阅统计
+            QuoteSubscription subscription = activeSubscriptions.get(symbol);
+            if (subscription != null) {
+                subscription.incrementUpdateCount();
+            }
+            
+            // 发布事件
+            publishQuoteUpdateEvent(realtimeQuote);
+            
+        } catch (Exception e) {
+            log.error("处理行情推送失败: {}", symbol, e);
         }
     }
 }

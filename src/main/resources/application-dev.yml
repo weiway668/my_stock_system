@@ -97,6 +97,28 @@ trading:
       port: 11111
       connection-timeout: 10000
       read-timeout: 30000
+      heartbeat-interval: 30000
+      max-retry-attempts: 3
+      retry-delay: 5000
+      
+    # 行情订阅配置
+    quote:
+      max-subscriptions: 500
+      batch-size: 100
+      push-enabled: true
+      
+    # 交易配置
+    trade:
+      account-id: ""  # 在运行时设置
+      unlock-password: ""  # 在运行时通过环境变量设置
+      environment: SIMULATE  # SIMULATE|REAL
+      market: HK  # HK|US|CN
+      
+    # API限流配置
+    rate-limit:
+      quote-per-second: 30
+      trade-per-second: 10
+      query-per-second: 20
       max-retry-attempts: 3
       retry-delay-ms: 5000
       keep-alive: true
