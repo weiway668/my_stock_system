@@ -1,8 +1,8 @@
-# 核心组件开发流程
+# 港股程序化交易系统 - 开发工作流程
 
-## 12.1 开发流程总览
+## 16.1 开发流程总览
 
-### 12.1.1 组件开发顺序
+### 16.1.1 组件开发顺序
 ```mermaid
 graph TD
     A[基础设施层] --> B[数据访问层]
@@ -30,7 +30,7 @@ graph TD
     E3[事件监听] --> E
 ```
 
-### 12.1.2 测试驱动开发流程
+### 16.1.2 测试驱动开发流程
 ```java
 // TDD开发循环
 public class TDDWorkflow {
@@ -55,9 +55,9 @@ public class TDDWorkflow {
 }
 ```
 
-## 12.2 数据层组件开发
+## 16.2 数据层组件开发
 
-### 12.2.1 市场数据接入开发流程
+### 16.2.1 市场数据接入开发流程
 
 #### 步骤1：定义数据模型
 ```java
@@ -1179,9 +1179,533 @@ while true; do
 done
 ```
 
-## 12.10 开发最佳实践总结
+## 16.9 CLI系统测试流程
 
-### 12.10.1 代码质量检查清单
+### 16.9.1 CLI命令测试
+
+```java
+@SpringBootTest
+@TestPropertySource(properties = {
+    "logging.level.com.trading=DEBUG",
+    "spring.main.web-application-type=none"
+})
+class CLIIntegrationTest {
+    
+    @Autowired
+    private CommandRegistry commandRegistry;
+    
+    @Autowired
+    private BacktestCommand backtestCommand;
+    
+    @Test
+    @DisplayName("测试backtest命令基本功能")
+    void testBacktestCommandExecution() throws CommandException {
+        // Given
+        String[] args = {
+            "--strategy", "MACD",
+            "--symbol", "02800.HK", 
+            "--from", "2024-01-01",
+            "--to", "2024-12-31",
+            "--capital", "100000",
+            "--output", "./test-output"
+        };
+        
+        // When
+        assertThatCode(() -> backtestCommand.execute(args))
+            .doesNotThrowAnyException();
+        
+        // Then
+        Path outputDir = Paths.get("./test-output");
+        assertThat(Files.exists(outputDir)).isTrue();
+        
+        // 验证报告文件生成
+        assertThat(Files.exists(outputDir.resolve("summary.json"))).isTrue();
+        assertThat(Files.exists(outputDir.resolve("trades.csv"))).isTrue();
+        assertThat(Files.exists(outputDir.resolve("chinese_summary.txt"))).isTrue();
+    }
+    
+    @Test
+    @DisplayName("测试CLI参数验证")
+    void testCommandParameterValidation() {
+        // 测试缺少必需参数
+        String[] invalidArgs = {"--strategy", "MACD"};
+        
+        assertThatThrownBy(() -> backtestCommand.execute(invalidArgs))
+            .isInstanceOf(CommandException.class)
+            .hasMessageContaining("缺少必需参数");
+    }
+    
+    @Test
+    @DisplayName("测试命令别名功能")
+    void testCommandAliases() {
+        Command btCommand = commandRegistry.findCommand("bt");
+        Command backtestCommand = commandRegistry.findCommand("backtest");
+        
+        assertThat(btCommand).isSameAs(backtestCommand);
+    }
+}
+```
+
+### 16.9.2 CLI输出格式测试
+
+```java
+@TestMethodOrder(OrderAnnotation.class)
+class CLIOutputFormatTest {
+    
+    private static final String OUTPUT_DIR = "./test-cli-output";
+    
+    @BeforeAll
+    static void setup() throws IOException {
+        Files.createDirectories(Paths.get(OUTPUT_DIR));
+    }
+    
+    @Test
+    @Order(1)
+    @DisplayName("测试JSON报告格式")
+    void testJSONReportFormat() throws IOException {
+        // Given
+        BacktestResult result = createSampleBacktestResult();
+        BacktestRequest request = createSampleBacktestRequest();
+        
+        // When
+        JSONReportGenerator generator = new JSONReportGenerator();
+        ReportFile reportFile = generator.generateSummaryJson(
+            ReportData.builder()
+                .result(result)
+                .request(request)
+                .build(),
+            Paths.get(OUTPUT_DIR)
+        );
+        
+        // Then
+        assertThat(reportFile.getFileName()).isEqualTo("summary.json");
+        assertThat(Files.exists(Paths.get(reportFile.getFilePath()))).isTrue();
+        
+        // 验证JSON格式正确性
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode jsonNode = mapper.readTree(new File(reportFile.getFilePath()));
+        
+        assertThat(jsonNode.has("symbol")).isTrue();
+        assertThat(jsonNode.has("strategy")).isTrue();
+        assertThat(jsonNode.has("performance")).isTrue();
+        assertThat(jsonNode.get("performance").has("total_return")).isTrue();
+    }
+    
+    @Test
+    @Order(2)
+    @DisplayName("测试CSV报告格式")
+    void testCSVReportFormat() throws IOException {
+        // Given
+        BacktestResult result = createSampleBacktestResult();
+        ReportData reportData = ReportData.builder()
+            .result(result)
+            .build();
+        
+        // When
+        CSVReportGenerator generator = new CSVReportGenerator();
+        ReportFile reportFile = generator.generateTradesCsv(
+            reportData, Paths.get(OUTPUT_DIR)
+        );
+        
+        // Then
+        List<String> lines = Files.readAllLines(Paths.get(reportFile.getFilePath()));
+        
+        // 验证CSV格式
+        assertThat(lines).isNotEmpty();
+        assertThat(lines.get(0)).contains("trade_id,symbol,entry_time"); // 标题行
+        
+        if (lines.size() > 1) {
+            String[] fields = lines.get(1).split(",");
+            assertThat(fields.length).isGreaterThanOrEqualTo(10); // 至少10个字段
+        }
+    }
+    
+    @Test
+    @Order(3)
+    @DisplayName("测试中文摘要格式")
+    void testChineseSummaryFormat() throws IOException {
+        // Given
+        BacktestResult result = createSampleBacktestResult();
+        BacktestRequest request = createSampleBacktestRequest();
+        TradingPatternAnalysis pattern = createSamplePattern();
+        
+        ReportData reportData = ReportData.builder()
+            .result(result)
+            .request(request)
+            .tradingPatternAnalysis(pattern)
+            .build();
+        
+        // When
+        ChineseSummaryGenerator generator = new ChineseSummaryGenerator();
+        ReportFile reportFile = generator.generateChineseSummary(
+            reportData, Paths.get(OUTPUT_DIR)
+        );
+        
+        // Then
+        String content = Files.readString(Paths.get(reportFile.getFilePath()), 
+            StandardCharsets.UTF_8);
+        
+        // 验证中文内容
+        assertThat(content).contains("港股程序化交易回测报告");
+        assertThat(content).contains("【回测基本信息】");
+        assertThat(content).contains("【收益分析】");
+        assertThat(content).contains("【风险分析】");
+        assertThat(content).contains("【交易统计】");
+        assertThat(content).contains("【成本分析】");
+        assertThat(content).contains("【目标达成分析】");
+    }
+    
+    @AfterAll
+    static void cleanup() throws IOException {
+        // 清理测试文件
+        FileUtils.deleteDirectory(new File(OUTPUT_DIR));
+    }
+}
+```
+
+### 16.9.3 CLI性能测试
+
+```java
+@TestMethodOrder(OrderAnnotation.class)
+class CLIPerformanceTest {
+    
+    private static final int LARGE_DATA_SIZE = 10000;
+    private static final long MAX_EXECUTION_TIME_MS = 30000; // 30秒
+    
+    @Test
+    @DisplayName("测试大数据量回测性能")
+    @Timeout(value = 45, unit = TimeUnit.SECONDS)
+    void testLargeDataBacktestPerformance() throws CommandException {
+        // Given - 创建大量测试数据
+        BacktestRequest request = BacktestRequest.createHKStockRequest(
+            "02800.HK",
+            LocalDateTime.of(2022, 1, 1, 0, 0),
+            LocalDateTime.of(2024, 12, 31, 23, 59),
+            new BigDecimal("100000")
+        );
+        request.setOutputPath("./performance-test-output");
+        
+        BacktestEngine backtestEngine = mock(BacktestEngine.class);
+        BacktestResult largeResult = createLargeBacktestResult(LARGE_DATA_SIZE);
+        
+        when(backtestEngine.runBacktest(any()))
+            .thenReturn(CompletableFuture.completedFuture(largeResult));
+        
+        BacktestCommand command = new BacktestCommand(
+            backtestEngine, 
+            new BacktestReportGenerator(/*参数*/)
+        );
+        
+        // When
+        long startTime = System.currentTimeMillis();
+        
+        String[] args = {
+            "--strategy", "MACD",
+            "--symbol", "02800.HK",
+            "--from", "2022-01-01",
+            "--to", "2024-12-31",
+            "--output", "./performance-test-output"
+        };
+        
+        command.execute(args);
+        
+        long executionTime = System.currentTimeMillis() - startTime;
+        
+        // Then
+        assertThat(executionTime).isLessThan(MAX_EXECUTION_TIME_MS);
+        
+        // 验证内存使用
+        Runtime runtime = Runtime.getRuntime();
+        long usedMemory = runtime.totalMemory() - runtime.freeMemory();
+        long maxMemory = runtime.maxMemory();
+        double memoryUsage = (double) usedMemory / maxMemory;
+        
+        assertThat(memoryUsage).isLessThan(0.8); // 内存使用不超过80%
+        
+        System.out.printf("性能测试完成: 数据量=%d, 执行时间=%dms, 内存使用=%.2f%%\n",
+            LARGE_DATA_SIZE, executionTime, memoryUsage * 100);
+    }
+    
+    @Test
+    @DisplayName("测试并发报告生成性能")
+    void testConcurrentReportGeneration() throws InterruptedException {
+        // Given
+        int concurrentTasks = 5;
+        ExecutorService executor = Executors.newFixedThreadPool(concurrentTasks);
+        List<CompletableFuture<Long>> futures = new ArrayList<>();
+        
+        BacktestReportGenerator reportGenerator = new BacktestReportGenerator(/*参数*/);
+        
+        // When
+        for (int i = 0; i < concurrentTasks; i++) {
+            final int taskId = i;
+            CompletableFuture<Long> future = CompletableFuture.supplyAsync(() -> {
+                try {
+                    long startTime = System.currentTimeMillis();
+                    
+                    BacktestRequest request = createSampleBacktestRequest();
+                    request.setOutputPath("./concurrent-test-" + taskId);
+                    
+                    BacktestResult result = createSampleBacktestResult();
+                    
+                    ReportGenerationResult reportResult = reportGenerator
+                        .generateReportPackage(request, result);
+                    
+                    assertThat(reportResult.isSuccessful()).isTrue();
+                    
+                    return System.currentTimeMillis() - startTime;
+                    
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }, executor);
+            
+            futures.add(future);
+        }
+        
+        // Then
+        CompletableFuture<Void> allOf = CompletableFuture.allOf(
+            futures.toArray(new CompletableFuture[0])
+        );
+        
+        allOf.get(60, TimeUnit.SECONDS); // 最多等待60秒
+        
+        List<Long> executionTimes = futures.stream()
+            .map(CompletableFuture::join)
+            .collect(Collectors.toList());
+        
+        double avgTime = executionTimes.stream()
+            .mapToLong(Long::longValue)
+            .average()
+            .orElse(0.0);
+        
+        System.out.printf("并发测试完成: 任务数=%d, 平均执行时间=%.1fms\n",
+            concurrentTasks, avgTime);
+        
+        // 验证所有任务都在合理时间内完成
+        assertThat(executionTimes).allMatch(time -> time < 15000); // 15秒内完成
+        
+        executor.shutdown();
+    }
+}
+```
+
+### 16.9.4 CLI端到端测试
+
+```java
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+class CLIEndToEndTest {
+    
+    @Autowired
+    private TradingSystemStarter tradingSystemStarter;
+    
+    @MockBean
+    private MarketDataService marketDataService;
+    
+    @TempDir
+    Path tempDir;
+    
+    @Test
+    @DisplayName("端到端回测流程测试")
+    void testEndToEndBacktestWorkflow() throws Exception {
+        // Given - 准备测试数据
+        List<MarketData> mockData = createMockMarketData();
+        when(marketDataService.loadHistoricalData(anyString(), any(), any()))
+            .thenReturn(mockData);
+        
+        String outputPath = tempDir.toString();
+        
+        // When - 执行完整的CLI命令
+        String[] args = {
+            "backtest",
+            "--strategy", "MACD",
+            "--symbol", "02800.HK", 
+            "--from", "2024-01-01",
+            "--to", "2024-12-31",
+            "--capital", "100000",
+            "--output", outputPath,
+            "--verbose"
+        };
+        
+        // 捕获控制台输出
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        System.setOut(new PrintStream(outputStream));
+        
+        try {
+            tradingSystemStarter.run(args);
+        } finally {
+            System.setOut(originalOut);
+        }
+        
+        String consoleOutput = outputStream.toString();
+        
+        // Then - 验证控制台输出
+        assertThat(consoleOutput).contains("开始执行回测");
+        assertThat(consoleOutput).contains("回测结果");
+        assertThat(consoleOutput).contains("年化收益");
+        assertThat(consoleOutput).contains("最大回撤");
+        assertThat(consoleOutput).contains("夏普比率");
+        assertThat(consoleOutput).contains("回测完成");
+        
+        // 验证文件输出
+        assertThat(Files.list(tempDir).count()).isGreaterThan(0);
+        
+        // 查找生成的报告目录
+        Path reportDir = Files.list(tempDir)
+            .filter(Files::isDirectory)
+            .filter(p -> p.getFileName().toString().startsWith("hk_macd_v1_02800_"))
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("未找到报告目录"));
+        
+        // 验证所有必需文件都存在
+        assertThat(Files.exists(reportDir.resolve("summary.json"))).isTrue();
+        assertThat(Files.exists(reportDir.resolve("trades.csv"))).isTrue();
+        assertThat(Files.exists(reportDir.resolve("equity_curve.csv"))).isTrue();
+        assertThat(Files.exists(reportDir.resolve("performance_metrics.json"))).isTrue();
+        assertThat(Files.exists(reportDir.resolve("chinese_summary.txt"))).isTrue();
+        
+        // 验证文件内容不为空
+        assertThat(Files.size(reportDir.resolve("summary.json"))).isGreaterThan(0);
+        assertThat(Files.size(reportDir.resolve("chinese_summary.txt"))).isGreaterThan(0);
+        
+        // 验证JSON格式正确性
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode summaryJson = mapper.readTree(reportDir.resolve("summary.json").toFile());
+        assertThat(summaryJson.get("symbol").asText()).isEqualTo("02800.HK");
+        assertThat(summaryJson.get("strategy").asText()).isEqualTo("MACD");
+    }
+    
+    @Test
+    @DisplayName("测试帮助命令输出")
+    void testHelpCommandOutput() throws Exception {
+        // Given
+        String[] args = {"help"};
+        
+        // When
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        PrintStream originalOut = System.out;
+        System.setOut(new PrintStream(outputStream));
+        
+        try {
+            tradingSystemStarter.run(args);
+        } finally {
+            System.setOut(originalOut);
+        }
+        
+        String output = outputStream.toString();
+        
+        // Then
+        assertThat(output).contains("港股程序化交易系统 CLI");
+        assertThat(output).contains("可用命令");
+        assertThat(output).contains("backtest");
+        assertThat(output).contains("执行策略回测");
+        assertThat(output).contains("使用示例");
+    }
+    
+    @Test
+    @DisplayName("测试错误处理")
+    void testErrorHandling() throws Exception {
+        // Given - 无效参数
+        String[] args = {
+            "backtest",
+            "--strategy", "INVALID_STRATEGY",
+            "--symbol", "INVALID_SYMBOL"
+        };
+        
+        // When
+        ByteArrayOutputStream errorStream = new ByteArrayOutputStream();
+        PrintStream originalErr = System.err;
+        System.setErr(new PrintStream(errorStream));
+        
+        try {
+            tradingSystemStarter.run(args);
+        } finally {
+            System.setErr(originalErr);
+        }
+        
+        String errorOutput = errorStream.toString();
+        
+        // Then
+        assertThat(errorOutput).contains("命令执行失败");
+    }
+}
+```
+
+### 16.9.5 CI/CD集成测试
+
+```yaml
+# .github/workflows/cli-test.yml
+name: CLI系统测试
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  cli-integration-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: 设置Java 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        
+    - name: 缓存Maven依赖
+      uses: actions/cache@v3
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        
+    - name: 编译项目
+      run: mvn clean compile -DskipTests
+      
+    - name: 运行CLI单元测试
+      run: mvn test -Dtest="*CLI*Test"
+      
+    - name: 运行CLI集成测试
+      run: mvn test -Dtest="*CLIIntegrationTest,*CLIEndToEndTest"
+      
+    - name: CLI功能验证测试
+      run: |
+        # 构建JAR包
+        mvn clean package -DskipTests
+        
+        # 测试基本命令
+        java -jar target/trading-system.jar help
+        
+        # 测试回测命令（使用模拟数据）
+        java -jar target/trading-system.jar backtest \
+          --strategy MACD \
+          --symbol TEST.HK \
+          --from 2024-01-01 \
+          --to 2024-01-31 \
+          --capital 10000 \
+          --output ./test-output
+          
+        # 验证输出文件
+        ls -la ./test-output/
+        
+    - name: 上传测试报告
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: cli-test-reports
+        path: |
+          target/surefire-reports/
+          ./test-output/
+```
+
+## 16.10 开发最佳实践总结
+
+### 16.10.1 代码质量检查清单
 - [ ] 所有公共方法都有JavaDoc注释
 - [ ] 单元测试覆盖率 > 80%
 - [ ] 无SonarQube严重/阻塞问题
@@ -1191,7 +1715,16 @@ done
 - [ ] 方法不超过30行
 - [ ] 圈复杂度 < 10
 
-### 12.10.2 提交前检查
+### 16.10.2 CLI系统特定检查清单
+- [ ] CLI命令都有完整的帮助信息
+- [ ] 所有CLI输出都使用中文界面
+- [ ] 报告生成格式与Python版本兼容
+- [ ] CLI参数验证完整
+- [ ] 错误处理用户友好
+- [ ] 进度显示功能正常
+- [ ] 彩色输出在不同终端下正常
+
+### 16.10.3 提交前检查
 ```bash
 # pre-commit.sh
 #!/bin/bash
@@ -1222,7 +1755,7 @@ fi
 echo "✅ 所有检查通过"
 ```
 
-### 12.10.3 性能优化要点
+### 16.10.4 性能优化要点
 1. **缓存策略**
    - 使用Redis缓存热点数据
    - 本地缓存配合分布式缓存
@@ -1237,3 +1770,19 @@ echo "✅ 所有检查通过"
    - 合理使用索引
    - 批量操作
    - 连接池调优
+
+4. **CLI系统优化**
+   - 命令执行异步化，避免阻塞用户界面
+   - 大报告生成使用流式处理，减少内存占用
+   - 进度显示使用单独线程，提升用户体验
+   - 报告文件并行生成，提高整体性能
+   - 合理设置JVM参数优化CLI启动速度
+
+### 16.10.5 CLI测试覆盖策略
+1. **单元测试**: 每个命令类都有对应的单元测试
+2. **集成测试**: 测试命令与业务服务的集成
+3. **端到端测试**: 完整的CLI工作流程测试
+4. **性能测试**: 大数据量和并发场景测试
+5. **用户体验测试**: 输出格式和错误处理测试
+
+通过这个完整的开发工作流程，确保CLI系统和整个交易系统都能保持高质量和可靠性。

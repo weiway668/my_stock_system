@@ -119,7 +119,4 @@ management:
     health:
       show-details: always
 
-# 禁用一些非必要的自动配置以加快测试速度
-spring.autoconfigure.exclude:
-  - org.springframework.boot.autoconfigure.web.servlet.WebMvcAutoConfiguration
-  - org.springframework.boot.autoconfigure.web.servlet.DispatcherServletAutoConfiguration
+# 测试环境需要WebMvc，不排除这些自动配置

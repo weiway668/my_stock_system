@@ -129,9 +129,9 @@ public class RedisConfig {
      * Redis Template specifically for market data with String serialization
      * for better performance when dealing with simple key-value operations
      */
-    @Bean
-    public RedisTemplate<String, String> stringRedisTemplate(RedisConnectionFactory connectionFactory) {
-        log.info("Configuring string Redis template for high-performance operations");
+    @Bean(name = "customStringRedisTemplate")
+    public RedisTemplate<String, String> customStringRedisTemplate(RedisConnectionFactory connectionFactory) {
+        log.info("Configuring custom string Redis template for high-performance operations");
         
         RedisTemplate<String, String> template = new RedisTemplate<>();
         template.setConnectionFactory(connectionFactory);
@@ -151,8 +151,8 @@ public class RedisConfig {
      * Configuration properties for Redis health monitoring
      */
     @Bean
-    public RedisHealthIndicator redisHealthIndicator(RedisTemplate<String, String> stringRedisTemplate) {
-        return new RedisHealthIndicator(stringRedisTemplate);
+    public RedisHealthIndicator redisHealthIndicator(RedisTemplate<String, String> customStringRedisTemplate) {
+        return new RedisHealthIndicator(customStringRedisTemplate);
     }
 
     /**

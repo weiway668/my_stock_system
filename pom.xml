@@ -109,11 +109,14 @@
             <version>${jline.version}</version>
         </dependency>
 
+        <!-- Spring Shell for CLI (暂时禁用，使用自定义CLI) -->
+        <!--
         <dependency>
             <groupId>org.springframework.shell</groupId>
             <artifactId>spring-shell-starter</artifactId>
             <version>${spring-shell.version}</version>
         </dependency>
+        -->
 
         <dependency>
             <groupId>commons-cli</groupId>
@@ -314,18 +317,11 @@
             <version>2.12.3</version>
         </dependency>
         
-        <!-- Protocol Buffers for FUTU OpenAPI -->
+        <!-- FUTU Official Java SDK -->
         <dependency>
-            <groupId>com.google.protobuf</groupId>
-            <artifactId>protobuf-java</artifactId>
-            <version>3.25.1</version>
-        </dependency>
-        
-        <!-- TA4J Technical Analysis Library -->
-        <dependency>
-            <groupId>org.ta4j</groupId>
-            <artifactId>ta4j-core</artifactId>
-            <version>0.15</version>
+            <groupId>com.futunn.openapi</groupId>
+            <artifactId>futu-api</artifactId>
+            <version>9.3.5308</version>
         </dependency>
     </dependencies>
 

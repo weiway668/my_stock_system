@@ -1,11 +1,19 @@
 # 港股程序化交易系统 - 整体架构设计
 
-## 2.1 三层架构模型
+## 2.1 四层架构模型
 ```
 ┌─────────────────────────────────────────┐
+│         CLI Layer (命令行接口层)          │
+│  - CommandLineRunner                    │
+│  - CommandRegistry                      │
+│  - BacktestCommand                      │
+│  - AbstractCommand                      │
+└─────────────────────────────────────────┘
+                    ↓
+┌─────────────────────────────────────────┐
 │         API Layer (接口层)               │
-│  - REST Controller                      │
-│  - WebSocket Handler                    │
+│  - REST Controller (预留)               │
+│  - WebSocket Handler (预留)             │
 └─────────────────────────────────────────┘
                     ↓
 ┌─────────────────────────────────────────┐
@@ -14,6 +22,9 @@
 │  - Market Service                       │
 │  - Strategy Service                     │
 │  - Risk Service                         │
+│  - BacktestEngine                       │
+│  - DataPreparationService              │
+│  - BacktestReportGenerator              │
 └─────────────────────────────────────────┘
                     ↓
 ┌─────────────────────────────────────────┐
@@ -22,5 +33,6 @@
 │  - Market Data Adapter                  │
 │  - Redis Cache                          │
 │  - Disruptor/Spring Events             │
+│  - HKStockCommissionCalculator          │
 └─────────────────────────────────────────┘
 ```

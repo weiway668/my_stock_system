@@ -52,11 +52,11 @@ public class FutuConnectionManager {
             futuProperties.getConnection().getHost(), 
             futuProperties.getConnection().getPort());
         
-        // Start connection process
-        startConnection();
+        // 不自动连接，只在需要时连接
+        log.info("FUTU Connection Manager initialized - connections will be established on demand");
         
-        // Start heartbeat monitoring
-        startHeartbeatMonitoring();
+        // Start heartbeat monitoring only when connected
+        // startHeartbeatMonitoring();
     }
 
     /**

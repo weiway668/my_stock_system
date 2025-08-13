@@ -4,16 +4,18 @@ import com.trading.domain.entity.MarketData;
 import com.trading.domain.vo.TechnicalIndicators;
 import com.trading.infrastructure.cache.CacheService;
 import com.trading.infrastructure.futu.FutuConnectionManager;
+import com.trading.infrastructure.futu.SimpleFutuMarketDataProvider;
 import com.trading.repository.MarketDataRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -28,15 +30,16 @@ import java.util.concurrent.TimeoutException;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
-@ConditionalOnProperty(name = "trading.futu.connection.host")
 public class MarketDataService {
 
-    private final FutuConnectionManager connectionManager;
-    private final MarketDataRepository marketDataRepository;
-    private final CacheService cacheService;
-    private final com.trading.infrastructure.futu.client.FutuApiClient futuApiClient;
-    private final com.trading.infrastructure.futu.protocol.FutuProtobufSerializer protobufSerializer;
+    @Autowired
+    private FutuConnectionManager connectionManager;
+    @Autowired
+    private MarketDataRepository marketDataRepository;
+    @Autowired
+    private CacheService cacheService;
+    @Autowired(required = false)
+    private SimpleFutuMarketDataProvider futuDataProvider;
 
     private static final DateTimeFormatter ID_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
 
@@ -103,39 +106,57 @@ public class MarketDataService {
         try {
             log.debug("从FUTU API获取K线数据: symbol={}, timeframe={}", symbol, timeframe);
             
-            // 转换时间周期到FUTU K线类型
-            int klType = convertTimeframeToKlType(timeframe);
+            // 检查连接状态
+            if (!futuDataProvider.isConnected()) {
+                log.warn("FUTU未连接，使用模拟数据");
+                return generateSimulatedMarketData(symbol, timeframe, startTime, endTime, limit);
+            }
             
-            // 格式化时间
-            String beginTimeStr = protobufSerializer.formatDateTime(startTime);
-            String endTimeStr = protobufSerializer.formatDateTime(endTime);
+            // 转换为LocalDate
+            LocalDate startDate = startTime.toLocalDate();
+            LocalDate endDate = endTime.toLocalDate();
             
-            // 构建K线请求
-            byte[] requestData = protobufSerializer.buildGetKLineRequest(
-                symbol, klType, limit, beginTimeStr, endTimeStr
-            );
+            // 获取K线数据
+            List<SimpleFutuMarketDataProvider.KLineData> klineDataList = 
+                futuDataProvider.getHistoricalData(symbol, startDate, endDate)
+                    .get(10, TimeUnit.SECONDS);
             
-            // 发送请求
-            CompletableFuture<io.netty.buffer.ByteBuf> future = futuApiClient.sendRequest(
-                com.trading.infrastructure.futu.protocol.FutuProtocol.PROTO_ID_GET_KL,
-                requestData
-            );
+            if (klineDataList == null || klineDataList.isEmpty()) {
+                log.warn("FUTU API未返回K线数据，使用模拟数据");
+                return generateSimulatedMarketData(symbol, timeframe, startTime, endTime, limit);
+            }
             
-            // 等待响应（超时10秒）
-            io.netty.buffer.ByteBuf response = future.get(10, TimeUnit.SECONDS);
-            
-            if (response != null) {
-                // 解析K线数据
-                List<MarketData> klineData = parseKlineResponse(response, symbol, timeframe);
-                
-                if (klineData != null && !klineData.isEmpty()) {
-                    log.info("成功获取{}条K线数据", klineData.size());
-                    return klineData;
+            // 转换为MarketData格式
+            List<MarketData> marketDataList = new ArrayList<>();
+            for (SimpleFutuMarketDataProvider.KLineData kl : klineDataList) {
+                try {
+                    MarketData marketData = MarketData.builder()
+                        .id(symbol + "_" + kl.getTime().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")))
+                        .symbol(symbol)
+                        .open(kl.getOpen())
+                        .high(kl.getHigh())
+                        .low(kl.getLow())
+                        .close(kl.getClose())
+                        .volume(kl.getVolume())
+                        .turnover(kl.getTurnover())
+                        .timestamp(kl.getTime())
+                        .timeframe(timeframe)
+                        .createdAt(LocalDateTime.now())
+                        .updatedAt(LocalDateTime.now())
+                        .build();
+                    
+                    marketDataList.add(marketData);
+                    
+                    if (marketDataList.size() >= limit) {
+                        break;
+                    }
+                } catch (Exception e) {
+                    log.warn("转换K线数据失败: {}", e.getMessage());
                 }
             }
             
-            log.warn("FUTU API未返回K线数据，使用模拟数据");
-            return generateSimulatedMarketData(symbol, timeframe, startTime, endTime, limit);
+            log.info("成功获取{}条K线数据", marketDataList.size());
+            return marketDataList;
             
         } catch (TimeoutException e) {
             log.error("获取K线数据超时: symbol={}", symbol);
@@ -373,80 +394,19 @@ public class MarketDataService {
      * 转换时间周期到FUTU K线类型
      */
     private int convertTimeframeToKlType(String timeframe) {
-        com.trading.infrastructure.futu.protocol.FutuProtocol.KLType klType = switch (timeframe.toLowerCase()) {
-            case "1m" -> com.trading.infrastructure.futu.protocol.FutuProtocol.KLType.K_1M;
-            case "5m" -> com.trading.infrastructure.futu.protocol.FutuProtocol.KLType.K_5M;
-            case "15m" -> com.trading.infrastructure.futu.protocol.FutuProtocol.KLType.K_15M;
-            case "30m" -> com.trading.infrastructure.futu.protocol.FutuProtocol.KLType.K_30M;
-            case "60m", "1h" -> com.trading.infrastructure.futu.protocol.FutuProtocol.KLType.K_60M;
-            case "1d" -> com.trading.infrastructure.futu.protocol.FutuProtocol.KLType.K_DAY;
-            case "1w" -> com.trading.infrastructure.futu.protocol.FutuProtocol.KLType.K_WEEK;
-            case "1month" -> com.trading.infrastructure.futu.protocol.FutuProtocol.KLType.K_MON;
-            default -> com.trading.infrastructure.futu.protocol.FutuProtocol.KLType.K_30M;
+        return switch (timeframe.toLowerCase()) {
+            case "1m" -> 1;  // K_1M
+            case "5m" -> 2;  // K_5M
+            case "15m" -> 3;  // K_15M
+            case "30m" -> 4;  // K_30M
+            case "60m", "1h" -> 5;  // K_60M
+            case "1d" -> 6;  // K_DAY
+            case "1w" -> 7;  // K_WEEK
+            case "1month" -> 8;  // K_MON
+            default -> 4;  // K_30M
         };
-        return klType.getCode();
     }
     
-    /**
-     * 解析K线响应数据
-     */
-    @SuppressWarnings("unchecked")
-    private List<MarketData> parseKlineResponse(io.netty.buffer.ByteBuf response, String symbol, String timeframe) {
-        try {
-            // 读取响应数据
-            byte[] responseData = new byte[response.readableBytes()];
-            response.readBytes(responseData);
-            
-            // 解析响应（简化版，实际应使用Protobuf）
-            Map<String, Object> responseMap = protobufSerializer.parseResponse(responseData);
-            
-            if (responseMap == null || !responseMap.containsKey("s2c")) {
-                log.warn("K线响应格式错误");
-                return null;
-            }
-            
-            Map<String, Object> s2c = (Map<String, Object>) responseMap.get("s2c");
-            if (!s2c.containsKey("klList")) {
-                log.warn("K线响应中没有数据");
-                return null;
-            }
-            
-            List<Map<String, Object>> klList = (List<Map<String, Object>>) s2c.get("klList");
-            List<MarketData> marketDataList = new java.util.ArrayList<>();
-            
-            for (Map<String, Object> kl : klList) {
-                try {
-                    MarketData marketData = MarketData.builder()
-                        .id(symbol + "_" + kl.get("time").toString().replace(" ", "_").replace(":", ""))
-                        .symbol(symbol)
-                        .open(BigDecimal.valueOf(((Number) kl.get("openPrice")).doubleValue()))
-                        .high(BigDecimal.valueOf(((Number) kl.get("highPrice")).doubleValue()))
-                        .low(BigDecimal.valueOf(((Number) kl.get("lowPrice")).doubleValue()))
-                        .close(BigDecimal.valueOf(((Number) kl.get("closePrice")).doubleValue()))
-                        .volume(((Number) kl.get("volume")).longValue())
-                        .turnover(BigDecimal.valueOf(((Number) kl.get("turnover")).doubleValue()))
-                        .timestamp(protobufSerializer.parseDateTime(kl.get("time").toString()))
-                        .timeframe(timeframe)
-                        .createdAt(LocalDateTime.now())
-                        .updatedAt(LocalDateTime.now())
-                        .build();
-                    
-                    marketDataList.add(marketData);
-                } catch (Exception e) {
-                    log.warn("解析K线数据项失败: {}", e.getMessage());
-                }
-            }
-            
-            return marketDataList;
-            
-        } catch (Exception e) {
-            log.error("解析K线响应异常", e);
-            return null;
-        } finally {
-            // 释放ByteBuf
-            response.release();
-        }
-    }
     
     /**
      * 批量获取历史数据（支持分页）
@@ -565,26 +525,22 @@ public class MarketDataService {
                 }
                 
                 // 从FUTU API获取实时价格
-                com.trading.infrastructure.futu.protocol.FutuRequest request = com.trading.infrastructure.futu.protocol.FutuRequest.builder()
-                    .protoId(com.trading.infrastructure.futu.protocol.FutuProtocol.PROTO_ID_QOT_GETSTOCKPRICE)
-                    .data(Map.of(
-                        "symbol", symbol,
-                        "market", com.trading.infrastructure.futu.protocol.FutuProtocol.MARKET_HK
-                    ))
-                    .build();
-                
-                com.trading.infrastructure.futu.protocol.FutuResponse response = futuApiClient.sendRequest(request).get(5, TimeUnit.SECONDS);
-                
-                if (response.getRetType() == 0 && response.getRetMsg().equals("success")) {
-                    Map<String, Object> data = response.getData();
-                    BigDecimal price = new BigDecimal(data.get("price").toString());
-                    
-                    PriceData priceData = new PriceData();
-                    priceData.setSymbol(symbol);
-                    priceData.setPrice(price);
-                    priceData.setTimestamp(LocalDateTime.now());
-                    
-                    return priceData;
+                if (futuDataProvider.isConnected()) {
+                    try {
+                        BigDecimal price = futuDataProvider.getRealtimePrice(symbol)
+                            .get(5, TimeUnit.SECONDS);
+                        
+                        if (price != null && price.compareTo(BigDecimal.ZERO) > 0) {
+                            PriceData priceData = new PriceData();
+                            priceData.setSymbol(symbol);
+                            priceData.setPrice(price);
+                            priceData.setTimestamp(LocalDateTime.now());
+                            
+                            return priceData;
+                        }
+                    } catch (Exception ex) {
+                        log.warn("获取实时价格失败: {}", ex.getMessage());
+                    }
                 }
                 
                 // 如果获取失败，返回模拟数据

@@ -1,157 +1,366 @@
-# CLI命令行交易系统
+# 港股程序化交易系统 - CLI系统文档
 
-## 14.1 CLI架构设计
+## 14.1 CLI架构概述
 
-### 14.1.1 命令行入口
+### 14.1.1 设计原则
+CLI系统采用命令优先的设计理念，提供专业级量化交易体验：
+
+```
+┌─────────────────────────────────────────┐
+│     TradingSystemStarter                │
+│  - CommandLineRunner 入口               │
+│  - 系统初始化和欢迎界面                  │
+│  - 命令路由和异常处理                    │
+└─────────────────────────────────────────┘
+                    ↓
+┌─────────────────────────────────────────┐
+│     CommandRegistry                     │
+│  - 命令注册和发现                        │
+│  - 别名支持                             │
+│  - Spring自动装配命令                    │
+└─────────────────────────────────────────┘
+                    ↓
+┌─────────────────────────────────────────┐
+│     AbstractCommand 基类                │
+│  - 彩色输出和进度显示                    │
+│  - 中文界面支持                          │
+│  - 参数解析和验证                        │
+└─────────────────────────────────────────┘
+                    ↓
+┌─────────────────────────────────────────┐
+│     具体命令实现                         │
+│  - BacktestCommand                      │
+│  - HelpCommand                          │
+│  - 未来扩展命令...                       │
+└─────────────────────────────────────────┘
+```
+
+### 14.1.2 核心特性
+- **Spring Boot 集成**: 与系统核心服务无缝集成
+- **中文界面**: 完整本地化支持，适合中文用户
+- **彩色输出**: 彩色文字和 Emoji 增强视觉体验
+- **进度显示**: 实时进度条显示长时间操作
+- **专业报告**: 多格式输出，匹配 Python 版本标准
+- **参数验证**: 全面的输入验证和错误处理
+
+## 14.2 核心组件实现
+
+### 14.2.1 主入口 (TradingSystemStarter)
 
 ```java
 @Component
-@CommandLineRunner
-public class TradingCLI implements CommandLineRunner {
+@Slf4j
+@RequiredArgsConstructor
+public class TradingSystemStarter implements CommandLineRunner {
     
-    @Autowired
-    private CommandRegistry commandRegistry;
-    
-    @Autowired
-    private InteractiveShell interactiveShell;
+    private final CommandRegistry commandRegistry;
     
     @Override
     public void run(String... args) throws Exception {
         if (args.length == 0) {
-            // 无参数时进入交互式Shell
-            interactiveShell.start();
+            printSystemInfo();
+            printAvailableCommands();
             return;
         }
         
         String commandName = args[0];
         
-        // 检查是否为帮助命令
-        if ("help".equals(commandName) || "--help".equals(commandName)) {
-            printHelp();
+        // 处理内置命令
+        if (isBuiltinCommand(commandName)) {
+            handleBuiltinCommand(commandName, args);
             return;
         }
         
-        // 获取并执行命令
-        Command command = commandRegistry.getCommand(commandName);
+        // 查找注册的命令
+        Command command = commandRegistry.findCommand(commandName);
         if (command == null) {
-            System.err.println("未知命令: " + commandName);
-            System.err.println("使用 'help' 查看可用命令");
-            System.exit(1);
+            printError("❌ 未知命令: " + commandName);
+            printInfo("💡 使用 'help' 查看可用命令");
+            return;
         }
         
+        // 执行命令
         try {
             String[] commandArgs = Arrays.copyOfRange(args, 1, args.length);
             command.execute(commandArgs);
-        } catch (Exception e) {
-            System.err.println("命令执行失败: " + e.getMessage());
-            if (isDebugMode()) {
-                e.printStackTrace();
+            
+        } catch (CommandException e) {
+            printError("❌ 命令执行失败: " + e.getMessage());
+            if (e.getCause() != null) {
+                log.debug("命令执行异常详情", e.getCause());
             }
-            System.exit(1);
+            
+        } catch (Exception e) {
+            printError("❌ 系统错误: " + e.getMessage());
+            log.error("CLI系统异常", e);
         }
     }
     
-    private void printHelp() {
-        System.out.println("港股程序化交易系统 CLI v1.0");
-        System.out.println("=====================================");
-        System.out.println("\n可用命令:");
+    private void printSystemInfo() {
+        System.out.println(ANSI_CYAN + "港股程序化交易系统 CLI v1.0" + ANSI_RESET);
+        System.out.println(ANSI_YELLOW + "🚀 专业量化交易回测分析平台" + ANSI_RESET);
+        System.out.println();
         
-        commandRegistry.getAllCommands().forEach(cmd -> {
-            System.out.printf("  %-15s %s\n", cmd.getName(), cmd.getDescription());
-        });
+        // 显示系统状态
+        System.out.printf("📅 系统时间: %s%n", LocalDateTime.now().format(
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        System.out.printf("💻 Java版本: %s%n", System.getProperty("java.version"));
+        System.out.printf("🗂️  工作目录: %s%n", System.getProperty("user.dir"));
+        System.out.println();
+    }
+    
+    private void printAvailableCommands() {
+        System.out.println(ANSI_BOLD + "📋 可用命令:" + ANSI_RESET);
+        System.out.println();
         
-        System.out.println("\n使用示例:");
-        System.out.println("  java -jar trading.jar backtest --strategy MACD --symbol 00700.HK");
-        System.out.println("  java -jar trading.jar trade --mode paper --capital 100000");
-        System.out.println("  java -jar trading.jar shell  # 进入交互式模式");
+        commandRegistry.getAllCommands().stream()
+            .sorted(Comparator.comparing(Command::getName))
+            .forEach(cmd -> {
+                String aliases = cmd.getAliases().isEmpty() ? 
+                    "" : " (" + String.join(", ", cmd.getAliases()) + ")";
+                
+                System.out.printf("  %s%-12s%s %s%s%n",
+                    ANSI_GREEN, cmd.getName() + aliases, ANSI_RESET,
+                    cmd.getDescription(),
+                    ANSI_RESET);
+            });
+        
+        System.out.println();
+        System.out.println(ANSI_BOLD + "💡 使用示例:" + ANSI_RESET);
+        System.out.println("  java -jar trading.jar backtest --strategy MACD --symbol 02800.HK --from 2024-01-01");
+        System.out.println("  java -jar trading.jar help backtest");
+        System.out.println();
     }
 }
 ```
 
-### 14.1.2 命令接口与注册器
+### 14.2.2 命令注册器 (CommandRegistry)
 
 ```java
-// 命令接口
-public interface Command {
-    String getName();
-    String getDescription();
-    void execute(String[] args) throws CommandException;
-    void printUsage();
-    List<String> getAliases();
+@Component
+@Slf4j
+public class CommandRegistry {
+    
+    private final Map<String, Command> commands = new ConcurrentHashMap<>();
+    private final Map<String, Command> aliases = new ConcurrentHashMap<>();
+    
+    /**
+     * Spring自动装配所有Command实现
+     */
+    @Autowired
+    public CommandRegistry(List<Command> commandList) {
+        commandList.forEach(this::registerCommand);
+        log.info("已注册 {} 个命令", commands.size());
+    }
+    
+    private void registerCommand(Command command) {
+        String name = command.getName();
+        if (commands.containsKey(name)) {
+            throw new IllegalStateException("命令名称冲突: " + name);
+        }
+        
+        commands.put(name, command);
+        log.debug("注册命令: {}", name);
+        
+        // 注册别名
+        command.getAliases().forEach(alias -> {
+            if (aliases.containsKey(alias) || commands.containsKey(alias)) {
+                log.warn("别名冲突，跳过: {} -> {}", alias, name);
+            } else {
+                aliases.put(alias, command);
+                log.debug("注册别名: {} -> {}", alias, name);
+            }
+        });
+    }
+    
+    public Command findCommand(String name) {
+        Command command = commands.get(name);
+        return command != null ? command : aliases.get(name);
+    }
+    
+    public Collection<Command> getAllCommands() {
+        return Collections.unmodifiableCollection(commands.values());
+    }
+    
+    public boolean hasCommand(String name) {
+        return commands.containsKey(name) || aliases.containsKey(name);
+    }
 }
+```
 
-// 命令基类
+### 14.2.3 命令基类 (AbstractCommand)
+
+```java
+@Slf4j
 public abstract class AbstractCommand implements Command {
     
-    protected final Logger logger = LoggerFactory.getLogger(getClass());
+    // ANSI 颜色常量
+    protected static final String ANSI_RESET = "\u001B[0m";
+    protected static final String ANSI_BLACK = "\u001B[30m";
+    protected static final String ANSI_RED = "\u001B[31m";
+    protected static final String ANSI_GREEN = "\u001B[32m";
+    protected static final String ANSI_YELLOW = "\u001B[33m";
+    protected static final String ANSI_BLUE = "\u001B[34m";
+    protected static final String ANSI_PURPLE = "\u001B[35m";
+    protected static final String ANSI_CYAN = "\u001B[36m";
+    protected static final String ANSI_WHITE = "\u001B[37m";
+    protected static final String ANSI_BOLD = "\u001B[1m";
+    protected static final String ANSI_UNDERLINE = "\u001B[4m";
     
     @Override
     public List<String> getAliases() {
         return Collections.emptyList();
     }
     
-    protected CommandLine parseArgs(String[] args, Options options) {
+    @Override
+    public List<String> getExamples() {
+        return Collections.emptyList();
+    }
+    
+    // 输出工具方法
+    protected void printSuccess(String message) {
+        System.out.println(ANSI_GREEN + "✅ " + message + ANSI_RESET);
+    }
+    
+    protected void printError(String message) {
+        System.out.println(ANSI_RED + "❌ " + message + ANSI_RESET);
+    }
+    
+    protected void printWarning(String message) {
+        System.out.println(ANSI_YELLOW + "⚠️  " + message + ANSI_RESET);
+    }
+    
+    protected void printInfo(String message) {
+        System.out.println(ANSI_CYAN + "ℹ️  " + message + ANSI_RESET);
+    }
+    
+    protected void printTableHeader(String title) {
+        System.out.println();
+        System.out.println(ANSI_BOLD + "=== " + title + " ===" + ANSI_RESET);
+    }
+    
+    protected void printSeparator() {
+        System.out.println("━".repeat(50));
+    }
+    
+    protected void printUsageHeader(String usage) {
+        System.out.println();
+        System.out.println(ANSI_BOLD + "用法: " + ANSI_RESET + usage);
+        System.out.println();
+    }
+    
+    // Apache Commons CLI 工具方法
+    protected CommandLine parseArgs(String[] args, Options options) throws CommandException {
         CommandLineParser parser = new DefaultParser();
+        HelpFormatter formatter = new HelpFormatter();
+        
         try {
             return parser.parse(options, args);
         } catch (ParseException e) {
-            throw new CommandException("参数解析失败: " + e.getMessage());
+            System.err.println(ANSI_RED + "参数解析错误: " + e.getMessage() + ANSI_RESET);
+            System.err.println();
+            
+            // 显示使用帮助
+            StringWriter stringWriter = new StringWriter();
+            PrintWriter printWriter = new PrintWriter(stringWriter);
+            formatter.printHelp(printWriter, 80, getName(), null, options, 2, 4, null);
+            System.err.println(stringWriter.toString());
+            
+            throw CommandException.invalidArgument(getName(), args, e.getMessage());
         }
     }
     
-    protected void validateRequired(CommandLine cmd, String... options) {
-        for (String opt : options) {
-            if (!cmd.hasOption(opt)) {
-                throw new CommandException("缺少必需参数: --" + opt);
-            }
-        }
-    }
-}
-
-// 命令注册器
-@Component
-public class CommandRegistry {
-    
-    private final Map<String, Command> commands = new HashMap<>();
-    private final Map<String, Command> aliases = new HashMap<>();
-    
-    @Autowired
-    public CommandRegistry(List<Command> commandList) {
-        commandList.forEach(this::register);
+    protected Option createOption(String opt, String longOpt, String description, boolean hasArg) {
+        return Option.builder(opt)
+            .longOpt(longOpt)
+            .desc(description)
+            .hasArg(hasArg)
+            .build();
     }
     
-    private void register(Command command) {
-        commands.put(command.getName(), command);
+    protected Option createRequiredOption(String opt, String longOpt, String description, boolean hasArg) {
+        return Option.builder(opt)
+            .longOpt(longOpt)
+            .desc(description)
+            .hasArg(hasArg)
+            .required(true)
+            .build();
+    }
+    
+    protected Options createBaseOptions() {
+        Options options = new Options();
+        options.addOption("h", "help", false, "显示此帮助信息");
+        options.addOption("v", "verbose", false, "详细输出");
+        options.addOption("q", "quiet", false, "静默模式");
+        return options;
+    }
+    
+    protected void printOptions(Options options) {
+        System.out.println(ANSI_BOLD + "选项:" + ANSI_RESET);
+        HelpFormatter formatter = new HelpFormatter();
+        StringWriter stringWriter = new StringWriter();
+        PrintWriter printWriter = new PrintWriter(stringWriter);
         
-        // 注册别名
-        command.getAliases().forEach(alias -> 
-            aliases.put(alias, command));
+        formatter.printOptions(printWriter, 80, options, 2, 4);
+        System.out.println(stringWriter.toString());
     }
     
-    public Command getCommand(String name) {
-        Command cmd = commands.get(name);
-        return cmd != null ? cmd : aliases.get(name);
+    protected void printExamples() {
+        List<String> examples = getExamples();
+        if (!examples.isEmpty()) {
+            System.out.println(ANSI_BOLD + "示例:" + ANSI_RESET);
+            examples.forEach(example -> System.out.println("  " + example));
+            System.out.println();
+        }
     }
     
-    public Collection<Command> getAllCommands() {
-        return commands.values();
+    // 参数获取工具方法
+    protected String getOptionValue(CommandLine cmd, String option, String defaultValue) {
+        return cmd.hasOption(option) ? cmd.getOptionValue(option) : defaultValue;
+    }
+    
+    protected boolean shouldShowHelp(CommandLine cmd) {
+        return cmd.hasOption("help");
+    }
+    
+    protected boolean isVerbose(CommandLine cmd) {
+        return cmd.hasOption("verbose");
+    }
+    
+    protected boolean isQuiet(CommandLine cmd) {
+        return cmd.hasOption("quiet");
+    }
+    
+    // 进度条工具
+    protected void showProgress(String taskName, int current, int total) {
+        int percentage = (current * 100) / total;
+        int progressLength = 40;
+        int filled = (current * progressLength) / total;
+        
+        String progressBar = "█".repeat(filled) + "░".repeat(progressLength - filled);
+        
+        System.out.printf("\r%s [%s] %d%% (%d/%d)",
+            taskName, progressBar, percentage, current, total);
+        
+        if (current == total) {
+            System.out.println(); // 完成后换行
+        }
     }
 }
 ```
 
-## 14.2 核心命令实现
+### 14.2.4 回测命令实现 (BacktestCommand)
 
-### 14.2.1 回测命令
+BacktestCommand 是系统的核心命令，提供完整的CLI回测功能：
 
 ```java
+@Slf4j
 @Component
+@RequiredArgsConstructor
 public class BacktestCommand extends AbstractCommand {
     
-    @Autowired
-    private BacktestEngine backtestEngine;
-    
-    @Autowired
-    private DataService dataService;
+    private final BacktestEngine backtestEngine;
+    private final BacktestReportGenerator reportGenerator;
     
     @Override
     public String getName() {
@@ -165,1084 +374,500 @@ public class BacktestCommand extends AbstractCommand {
     
     @Override
     public List<String> getAliases() {
-        return Arrays.asList("bt", "test");
+        return List.of("bt", "test");
     }
     
     @Override
-    public void execute(String[] args) {
-        Options options = createOptions();
-        CommandLine cmd = parseArgs(args, options);
-        
-        if (cmd.hasOption("help")) {
-            printUsage();
-            return;
-        }
-        
-        // 解析参数
-        BacktestConfig config = parseConfig(cmd);
-        
-        // 显示回测配置
-        printConfig(config);
-        
-        // 加载历史数据
-        System.out.println("\n加载历史数据...");
-        List<MarketData> historicalData = dataService.loadHistoricalData(
-            config.getSymbol(),
-            config.getStartDate(),
-            config.getEndDate(),
-            config.getInterval()
+    public List<String> getExamples() {
+        return List.of(
+            "backtest --strategy MACD --symbol 02800.HK --from 2024-01-01 --to 2024-12-31",
+            "backtest -s MACD -sym 02800.HK --capital 100000 --output ./output",
+            "bt --strategy MACD --symbol 02800.HK --from 2024-01-01 --verbose"
         );
-        
-        if (historicalData.isEmpty()) {
-            throw new CommandException("无可用历史数据");
-        }
-        
-        System.out.printf("已加载 %d 条数据\n", historicalData.size());
-        
-        // 执行回测
-        System.out.println("\n开始回测...");
-        ProgressBar progressBar = new ProgressBar("回测进度", 100);
-        
-        BacktestResult result = backtestEngine.run(
-            config,
-            historicalData,
-            progress -> progressBar.update((int)(progress * 100))
-        );
-        
-        progressBar.close();
-        
-        // 输出结果
-        printResults(result);
-        
-        // 生成报告
-        if (cmd.hasOption("output")) {
-            String outputPath = cmd.getOptionValue("output");
-            generateReport(result, outputPath);
-            System.out.println("\n报告已生成: " + outputPath);
-        }
-        
-        // 参数优化
-        if (cmd.hasOption("optimize")) {
-            System.out.println("\n开始参数优化...");
-            performOptimization(config, historicalData);
-        }
-    }
-    
-    private Options createOptions() {
-        Options options = new Options();
-        
-        // 必需参数
-        options.addOption("s", "strategy", true, "策略名称 (MACD/BOLL/VOLUME)");
-        options.addOption("sym", "symbol", true, "交易标的 (如: 00700.HK)");
-        
-        // 可选参数
-        options.addOption("from", true, "开始日期 (YYYY-MM-DD)");
-        options.addOption("to", true, "结束日期 (YYYY-MM-DD)");
-        options.addOption("c", "capital", true, "初始资金 (默认: 100000)");
-        options.addOption("i", "interval", true, "K线周期 (1m/5m/30m/1h/1d)");
-        options.addOption("o", "output", true, "报告输出路径");
-        options.addOption("v", "verbose", false, "详细输出");
-        options.addOption("opt", "optimize", false, "参数优化");
-        options.addOption("h", "help", false, "显示帮助");
-        
-        return options;
-    }
-    
-    private void printResults(BacktestResult result) {
-        // 创建表格
-        AsciiTable table = new AsciiTable();
-        table.addRule();
-        table.addRow("指标", "数值");
-        table.addRule();
-        
-        // 收益指标
-        table.addRow("总收益率", String.format("%.2f%%", result.getTotalReturn() * 100));
-        table.addRow("年化收益", String.format("%.2f%%", result.getAnnualizedReturn() * 100));
-        table.addRow("最大回撤", String.format("%.2f%%", result.getMaxDrawdown() * 100));
-        
-        // 风险指标
-        table.addRow("夏普比率", String.format("%.2f", result.getSharpeRatio()));
-        table.addRow("索提诺比率", String.format("%.2f", result.getSortinoRatio()));
-        table.addRow("卡尔马比率", String.format("%.2f", result.getCalmarRatio()));
-        
-        // 交易统计
-        table.addRow("总交易次数", String.valueOf(result.getTotalTrades()));
-        table.addRow("胜率", String.format("%.2f%%", result.getWinRate() * 100));
-        table.addRow("盈亏比", String.format("%.2f", result.getProfitFactor()));
-        table.addRow("平均持仓天数", String.format("%.1f", result.getAvgHoldingDays()));
-        
-        table.addRule();
-        
-        System.out.println("\n回测结果:");
-        System.out.println(table.render());
-        
-        // 绘制收益曲线（ASCII图表）
-        if (result.getEquityCurve() != null) {
-            drawEquityCurve(result.getEquityCurve());
-        }
-    }
-    
-    private void drawEquityCurve(List<BigDecimal> equityCurve) {
-        System.out.println("\n收益曲线:");
-        
-        ASCIIGraph graph = new ASCIIGraph();
-        graph.setWidth(80);
-        graph.setHeight(20);
-        
-        double[] values = equityCurve.stream()
-            .mapToDouble(BigDecimal::doubleValue)
-            .toArray();
-        
-        System.out.println(graph.plot(values));
-    }
-}
-```
-
-### 14.2.2 实盘交易命令
-
-```java
-@Component
-public class TradeCommand extends AbstractCommand {
-    
-    @Autowired
-    private TradingEngine tradingEngine;
-    
-    @Autowired
-    private AccountService accountService;
-    
-    @Override
-    public String getName() {
-        return "trade";
     }
     
     @Override
-    public String getDescription() {
-        return "启动交易引擎";
-    }
-    
-    @Override
-    public void execute(String[] args) {
-        Options options = createOptions();
-        CommandLine cmd = parseArgs(args, options);
+    public void execute(String[] args) throws CommandException {
+        long startTime = System.currentTimeMillis();
         
-        // 解析交易模式
-        TradeMode mode = TradeMode.valueOf(
-            cmd.getOptionValue("mode", "PAPER").toUpperCase()
-        );
-        
-        // 实盘交易确认
-        if (mode == TradeMode.LIVE) {
-            if (!confirmLiveTrading()) {
-                System.out.println("已取消实盘交易");
+        try {
+            // 解析参数
+            Options options = createOptions();
+            CommandLine cmd = parseArgs(args, options);
+            
+            if (shouldShowHelp(cmd)) {
+                printUsage();
                 return;
             }
             
-            // 检查账户状态
-            checkAccountStatus();
-        }
-        
-        // 构建交易配置
-        TradingConfig config = buildTradingConfig(cmd, mode);
-        
-        // 启动交易引擎
-        System.out.println("\n启动交易引擎...");
-        System.out.println("模式: " + mode);
-        System.out.println("策略: " + config.getStrategy());
-        System.out.println("标的: " + String.join(", ", config.getSymbols()));
-        System.out.println("资金: " + config.getCapital());
-        System.out.println("=====================================\n");
-        
-        tradingEngine.start(config);
-        
-        // 启动监控界面
-        TradingMonitor monitor = new TradingMonitor(tradingEngine);
-        monitor.start();
-        
-        // 交互式命令处理
-        handleInteractiveCommands();
-    }
-    
-    private boolean confirmLiveTrading() {
-        Console console = System.console();
-        if (console == null) {
-            throw new CommandException("无法获取控制台，请在终端中运行");
-        }
-        
-        System.out.println("\n" + Colors.RED + "⚠️  警告：即将进行实盘交易！" + Colors.RESET);
-        System.out.println("这将使用真实资金进行交易，可能导致资金损失。");
-        System.out.println("\n请确认以下信息:");
-        
-        // 显示账户信息
-        AccountInfo account = accountService.getAccountInfo();
-        System.out.println("  账户: " + account.getAccountId());
-        System.out.println("  可用资金: " + account.getAvailableBalance() + " HKD");
-        System.out.println("  当前持仓: " + account.getPositionCount() + " 个");
-        
-        System.out.print("\n请输入 'YES' 确认开始实盘交易: ");
-        String confirmation = console.readLine();
-        
-        return "YES".equals(confirmation);
-    }
-    
-    private void handleInteractiveCommands() {
-        Scanner scanner = new Scanner(System.in);
-        boolean running = true;
-        
-        System.out.println("\n输入命令 (help 查看帮助):");
-        
-        while (running) {
-            System.out.print("> ");
-            String input = scanner.nextLine().trim();
+            // 构建回测请求
+            BacktestRequest request = parseBacktestRequest(cmd);
+            request.validate();
             
-            try {
-                switch (input.toLowerCase()) {
-                    case "stop":
-                        tradingEngine.stop();
-                        running = false;
-                        break;
-                        
-                    case "pause":
-                        tradingEngine.pause();
-                        System.out.println("交易已暂停");
-                        break;
-                        
-                    case "resume":
-                        tradingEngine.resume();
-                        System.out.println("交易已恢复");
-                        break;
-                        
-                    case "status":
-                        printStatus();
-                        break;
-                        
-                    case "positions":
-                        printPositions();
-                        break;
-                        
-                    case "orders":
-                        printOrders();
-                        break;
-                        
-                    case "pnl":
-                        printPnL();
-                        break;
-                        
-                    case "help":
-                        printInteractiveHelp();
-                        break;
-                        
-                    default:
-                        if (!input.isEmpty()) {
-                            System.out.println("未知命令: " + input);
-                        }
-                }
-            } catch (Exception e) {
-                System.err.println("命令执行失败: " + e.getMessage());
+            // 显示配置
+            printBacktestConfig(request, isVerbose(cmd));
+            
+            // 执行回测
+            printInfo("开始执行回测...");
+            printSeparator();
+            
+            CompletableFuture<BacktestResult> future = backtestEngine.runBacktest(request);
+            BacktestResult result = future.get();
+            
+            // 设置执行时间
+            long executionTime = System.currentTimeMillis() - startTime;
+            result.setExecutionTimeMs(executionTime);
+            result.setReportGeneratedAt(LocalDateTime.now());
+            
+            // 显示结果
+            printBacktestResult(result, isVerbose(cmd), isQuiet(cmd));
+            
+            // 生成报告
+            if (request.isGenerateDetailedReport() && request.getOutputPath() != null) {
+                generateReports(request, result);
             }
+            
+        } catch (CommandException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("回测执行失败", e);
+            throw CommandException.executionFailed(getName(), args, e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 打印回测结果 - 专业格式输出
+     */
+    private void printBacktestResult(BacktestResult result, boolean verbose, boolean quiet) {
+        if (quiet) {
+            // 静默模式：仅关键指标，CSV格式
+            System.out.printf("%.2f%%,%.2f%%,%.2f,%.1f%%,%d%n",
+                result.getReturnRate(), result.getMaxDrawdown(), 
+                result.getSharpeRatio(), result.getWinRate(), result.getTotalTrades());
+            return;
         }
         
-        System.out.println("\n交易引擎已停止");
+        if (!result.isSuccessful()) {
+            printError("回测失败: " + result.getError());
+            return;
+        }
+        
+        printTableHeader("回测结果");
+        
+        // 基本信息
+        System.out.printf("回测期间: %s 至 %s (%d天)%n", 
+            result.getStartTime().toLocalDate(),
+            result.getEndTime().toLocalDate(), 
+            result.getBacktestDays());
+        System.out.printf("执行耗时: %.1f秒%n", result.getExecutionTimeMs() / 1000.0);
+        System.out.println();
+        
+        // 收益指标 - 彩色显示
+        printSubHeader("📈 收益指标");
+        System.out.printf("初始资金: %s¥%,.2f%s%n", ANSI_CYAN, result.getInitialCapital(), ANSI_RESET);
+        System.out.printf("最终权益: %s¥%,.2f%s%n", ANSI_CYAN, result.getFinalEquity(), ANSI_RESET);
+        System.out.printf("绝对收益: %s¥%,.2f%s%n", 
+            result.getTotalReturn().compareTo(BigDecimal.ZERO) >= 0 ? ANSI_GREEN : ANSI_RED,
+            result.getTotalReturn(), ANSI_RESET);
+        System.out.printf("总收益率: %s%.2f%%%s%n",
+            result.getReturnRate().compareTo(BigDecimal.ZERO) >= 0 ? ANSI_GREEN : ANSI_RED,
+            result.getReturnRate(), ANSI_RESET);
+        System.out.printf("年化收益: %s%.2f%%%s%n",
+            result.getAnnualizedReturn().compareTo(BigDecimal.ZERO) >= 0 ? ANSI_GREEN : ANSI_RED,
+            result.getAnnualizedReturn(), ANSI_RESET);
+        System.out.println();
+        
+        // 风险指标
+        printSubHeader("⚠️ 风险指标");
+        System.out.printf("最大回撤: %s%.2f%%%s%n", ANSI_RED, result.getMaxDrawdown(), ANSI_RESET);
+        System.out.printf("夏普比率: %.2f%n", result.getSharpeRatio());
+        if (result.getSortinoRatio() != null) {
+            System.out.printf("索提诺比率: %.2f%n", result.getSortinoRatio());
+        }
+        if (result.getCalmarRatio() != null) {
+            System.out.printf("卡尔马比率: %.2f%n", result.getCalmarRatio());
+        }
+        System.out.println();
+        
+        // 交易统计
+        printSubHeader("📊 交易统计");
+        System.out.printf("总交易次数: %d%n", result.getTotalTrades());
+        if (result.getTotalTrades() > 0) {
+            System.out.printf("盈利交易: %s%d%s%n", ANSI_GREEN, result.getWinningTrades(), ANSI_RESET);
+            System.out.printf("亏损交易: %s%d%s%n", ANSI_RED, result.getLosingTrades(), ANSI_RESET);
+            System.out.printf("胜率: %.1f%%%n", result.getWinRate());
+            System.out.printf("平均盈利: %s¥%.2f%s%n", ANSI_GREEN, result.getAvgWin(), ANSI_RESET);
+            System.out.printf("平均亏损: %s¥%.2f%s%n", ANSI_RED, result.getAvgLoss(), ANSI_RESET);
+            System.out.printf("盈亏比: %.2f%n", result.getProfitFactor());
+        }
+        System.out.println();
+        
+        // 目标达成分析
+        printSubHeader("🎯 目标分析");
+        boolean annualReturnTarget = result.getAnnualizedReturn().compareTo(new BigDecimal("15")) >= 0 &&
+                                   result.getAnnualizedReturn().compareTo(new BigDecimal("20")) <= 0;
+        boolean maxDrawdownTarget = result.getMaxDrawdown().compareTo(new BigDecimal("15")) < 0;
+        
+        System.out.printf("年化收益目标(15-20%%): %s%n", 
+            annualReturnTarget ? "✅ 达成" : "❌ 未达成");
+        System.out.printf("最大回撤目标(<15%%): %s%n", 
+            maxDrawdownTarget ? "✅ 达成" : "❌ 超出");
+        System.out.printf("综合评价: %s%n", 
+            annualReturnTarget && maxDrawdownTarget ? 
+            ANSI_GREEN + "优秀" + ANSI_RESET : 
+            annualReturnTarget || maxDrawdownTarget ? 
+            ANSI_YELLOW + "良好" + ANSI_RESET :
+            ANSI_RED + "需要改进" + ANSI_RESET);
+        
+        printSeparator();
+        printSuccess("回测完成");
+    }
+    
+    private void printSubHeader(String title) {
+        System.out.println(ANSI_BOLD + title + ANSI_RESET);
     }
 }
 ```
 
-### 14.2.3 数据管理命令
+## 14.3 命令异常处理
+
+### 14.3.1 命令异常类 (CommandException)
+
+```java
+public class CommandException extends RuntimeException {
+    
+    private final String commandName;
+    private final String[] args;
+    private final ErrorType errorType;
+    
+    public CommandException(String commandName, String[] args, String message, ErrorType errorType) {
+        super(message);
+        this.commandName = commandName;
+        this.args = args != null ? args.clone() : new String[0];
+        this.errorType = errorType;
+    }
+    
+    public CommandException(String commandName, String[] args, String message, Throwable cause, ErrorType errorType) {
+        super(message, cause);
+        this.commandName = commandName;
+        this.args = args != null ? args.clone() : new String[0];
+        this.errorType = errorType;
+    }
+    
+    public static CommandException invalidArgument(String commandName, String[] args, String message) {
+        return new CommandException(commandName, args, message, ErrorType.INVALID_ARGUMENT);
+    }
+    
+    public static CommandException missingArgument(String commandName, String[] args, String message) {
+        return new CommandException(commandName, args, message, ErrorType.MISSING_ARGUMENT);
+    }
+    
+    public static CommandException executionFailed(String commandName, String[] args, String message, Throwable cause) {
+        return new CommandException(commandName, args, message, cause, ErrorType.EXECUTION_FAILED);
+    }
+    
+    public static CommandException resourceNotFound(String commandName, String[] args, String message) {
+        return new CommandException(commandName, args, message, ErrorType.RESOURCE_NOT_FOUND);
+    }
+    
+    public enum ErrorType {
+        INVALID_ARGUMENT,
+        MISSING_ARGUMENT,
+        EXECUTION_FAILED,
+        RESOURCE_NOT_FOUND,
+        PERMISSION_DENIED,
+        TIMEOUT
+    }
+    
+    // Getters...
+    public String getCommandName() { return commandName; }
+    public String[] getArgs() { return args.clone(); }
+    public ErrorType getErrorType() { return errorType; }
+}
+```
+
+## 14.4 CLI输出格式标准
+
+### 14.4.1 输出目录结构
+
+CLI系统生成的报告严格按照Python版本的目录结构约定：
+
+```
+output/
+└── hk_macd_v1_02800_20250812_143022/
+    ├── summary.json                 # 核心指标摘要 (JSON格式)
+    ├── trades.csv                   # 详细交易记录 (CSV格式)
+    ├── equity_curve.csv             # 权益曲线数据 (CSV格式)
+    ├── performance_metrics.json     # 完整性能分析 (JSON格式)
+    ├── backtest_report.html         # 可视化HTML报告
+    └── chinese_summary.txt          # 中文分析摘要
+```
+
+### 14.4.2 目录命名规则
+
+```java
+/**
+ * 创建输出目录名称
+ * 格式: hk_{strategy}_v1_{symbol}_{timestamp}
+ */
+private String createOutputDirectoryName(BacktestRequest request, BacktestResult result) {
+    String strategy = request.getStrategyName().toLowerCase();
+    String cleanSymbol = request.getSymbol().replace(".HK", "").replace(".", "");
+    String timestamp = result.getReportGeneratedAt().format(
+        DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+    
+    return String.format("hk_%s_v1_%s_%s", strategy, cleanSymbol, timestamp);
+}
+```
+
+### 14.4.3 彩色输出标准
+
+```java
+public class ColorScheme {
+    // 基础颜色
+    public static final String SUCCESS = "\u001B[32m";  // 绿色 - 成功状态
+    public static final String ERROR = "\u001B[31m";    // 红色 - 错误状态
+    public static final String WARNING = "\u001B[33m";  // 黄色 - 警告信息
+    public static final String INFO = "\u001B[36m";     // 青色 - 信息提示
+    
+    // 功能颜色
+    public static final String PROFIT = "\u001B[32m";   // 绿色 - 盈利数据
+    public static final String LOSS = "\u001B[31m";     // 红色 - 亏损数据
+    public static final String NEUTRAL = "\u001B[37m";  // 白色 - 中性数据
+    
+    // 格式化
+    public static final String BOLD = "\u001B[1m";      // 粗体
+    public static final String UNDERLINE = "\u001B[4m"; // 下划线
+    public static final String RESET = "\u001B[0m";     // 重置
+}
+```
+
+## 14.5 CLI使用指南
+
+### 14.5.1 基本使用模式
+
+```bash
+# 1. 显示系统信息和可用命令
+java -jar trading.jar
+
+# 2. 显示特定命令帮助
+java -jar trading.jar help backtest
+java -jar trading.jar backtest --help
+
+# 3. 执行基本回测
+java -jar trading.jar backtest --strategy MACD --symbol 02800.HK --from 2024-01-01 --to 2024-12-31
+
+# 4. 使用命令别名
+java -jar trading.jar bt -s MACD -sym 02800.HK --from 2024-01-01
+```
+
+### 14.5.2 高级参数使用
+
+```bash
+# 自定义初始资金和输出目录
+java -jar trading.jar backtest \
+  --strategy MACD \
+  --symbol 02800.HK \
+  --from 2024-01-01 \
+  --to 2024-12-31 \
+  --capital 100000 \
+  --output ./reports
+
+# 详细模式输出
+java -jar trading.jar backtest \
+  --strategy MACD \
+  --symbol 02800.HK \
+  --from 2024-01-01 \
+  --verbose
+
+# 静默模式(仅关键指标)
+java -jar trading.jar backtest \
+  --strategy MACD \
+  --symbol 02800.HK \
+  --from 2024-01-01 \
+  --quiet
+
+# 自定义手续费率
+java -jar trading.jar backtest \
+  --strategy MACD \
+  --symbol 02800.HK \
+  --from 2024-01-01 \
+  --commission 0.0002 \
+  --slippage 0.0001
+
+# 不生成HTML报告
+java -jar trading.jar backtest \
+  --strategy MACD \
+  --symbol 02800.HK \
+  --from 2024-01-01 \
+  --no-html
+```
+
+### 14.5.3 输出示例
+
+**标准模式输出**：
+```
+港股程序化交易系统 CLI v1.0
+🚀 专业量化交易回测分析平台
+
+📅 系统时间: 2025-01-12 14:30:22
+💻 Java版本: 17.0.12
+🗂️  工作目录: /Users/user/trading
+
+=== 回测配置 ===
+策略名称: MACD
+交易标的: 02800.HK
+时间范围: 2024-01-01 至 2024-12-31
+初始资金: ¥100,000.00
+K线周期: 30m
+
+ℹ️  开始执行回测...
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+=== 回测结果 ===
+回测期间: 2024-01-01 至 2024-12-31 (365天)
+执行耗时: 2.3秒
+
+📈 收益指标
+初始资金: ¥100,000.00
+最终权益: ¥118,650.00
+绝对收益: ¥18,650.00
+总收益率: 18.65%
+年化收益: 18.65%
+
+⚠️ 风险指标
+最大回撤: 8.32%
+夏普比率: 1.85
+索提诺比率: 2.34
+卡尔马比率: 2.24
+
+📊 交易统计
+总交易次数: 24
+盈利交易: 15
+亏损交易: 9
+胜率: 62.5%
+平均盈利: ¥2,150.00
+平均亏损: ¥980.00
+盈亏比: 2.19
+
+🎯 目标分析
+年化收益目标(15-20%): ✅ 达成
+最大回撤目标(<15%): ✅ 达成
+综合评价: 优秀
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ 回测完成
+```
+
+**静默模式输出**：
+```
+18.65%,8.32%,1.85,62.5%,24
+```
+
+## 14.6 扩展和定制
+
+### 14.6.1 自定义命令开发
 
 ```java
 @Component
-public class DataCommand extends AbstractCommand {
-    
-    @Autowired
-    private DataDownloader dataDownloader;
-    
-    @Autowired
-    private DataManager dataManager;
+public class CustomCommand extends AbstractCommand {
     
     @Override
     public String getName() {
-        return "data";
+        return "custom";
     }
     
     @Override
     public String getDescription() {
-        return "数据管理（下载/更新/清理）";
+        return "自定义命令示例";
     }
     
     @Override
-    public void execute(String[] args) {
-        if (args.length == 0) {
-            printUsage();
-            return;
-        }
-        
-        String action = args[0];
-        String[] actionArgs = Arrays.copyOfRange(args, 1, args.length);
-        
-        switch (action.toLowerCase()) {
-            case "download":
-                downloadData(actionArgs);
-                break;
-            case "update":
-                updateData(actionArgs);
-                break;
-            case "clean":
-                cleanData(actionArgs);
-                break;
-            case "export":
-                exportData(actionArgs);
-                break;
-            case "import":
-                importData(actionArgs);
-                break;
-            case "list":
-                listData(actionArgs);
-                break;
-            default:
-                throw new CommandException("未知操作: " + action);
-        }
+    public List<String> getAliases() {
+        return List.of("c", "cust");
     }
     
-    private void downloadData(String[] args) {
-        Options options = new Options();
-        options.addOption("m", "market", true, "市场 (HK/US/CN)");
-        options.addOption("s", "symbols", true, "股票代码，逗号分隔");
-        options.addOption("from", true, "开始日期");
-        options.addOption("to", true, "结束日期");
-        options.addOption("i", "interval", true, "K线周期");
-        options.addOption("o", "output", true, "输出目录");
-        options.addOption("f", "format", true, "数据格式 (csv/json/parquet)");
+    @Override
+    public void execute(String[] args) throws CommandException {
+        // 实现自定义逻辑
+        printInfo("执行自定义命令");
         
-        CommandLine cmd = parseArgs(args, options);
-        
-        // 解析参数
-        Market market = Market.valueOf(cmd.getOptionValue("market", "HK"));
-        List<String> symbols = Arrays.asList(cmd.getOptionValue("symbols").split(","));
-        LocalDate startDate = LocalDate.parse(cmd.getOptionValue("from"));
-        LocalDate endDate = LocalDate.parse(cmd.getOptionValue("to", LocalDate.now().toString()));
-        String interval = cmd.getOptionValue("interval", "1d");
-        
-        System.out.println("\n开始下载数据:");
-        System.out.println("市场: " + market);
-        System.out.println("标的: " + String.join(", ", symbols));
-        System.out.println("时间: " + startDate + " 至 " + endDate);
-        System.out.println("周期: " + interval);
-        System.out.println();
-        
-        // 创建进度跟踪器
-        MultiProgressBar progressBars = new MultiProgressBar();
-        
-        // 并行下载
-        List<CompletableFuture<DownloadResult>> futures = symbols.stream()
-            .map(symbol -> CompletableFuture.supplyAsync(() -> {
-                ProgressBar bar = progressBars.addBar(symbol, 100);
-                
-                try {
-                    return dataDownloader.download(
-                        symbol,
-                        market,
-                        startDate,
-                        endDate,
-                        interval,
-                        progress -> bar.update((int)(progress * 100))
-                    );
-                } finally {
-                    bar.complete();
-                }
-            }))
-            .collect(Collectors.toList());
-        
-        // 等待所有下载完成
-        List<DownloadResult> results = futures.stream()
-            .map(CompletableFuture::join)
-            .collect(Collectors.toList());
-        
-        progressBars.close();
-        
-        // 输出统计
-        printDownloadSummary(results);
-        
-        // 保存数据
-        if (cmd.hasOption("output")) {
-            String outputDir = cmd.getOptionValue("output");
-            String format = cmd.getOptionValue("format", "csv");
-            saveData(results, outputDir, format);
-        }
+        // 使用基类提供的工具方法
+        printSuccess("操作成功");
+        printTableHeader("结果展示");
+        printSeparator();
     }
     
-    private void printDownloadSummary(List<DownloadResult> results) {
-        System.out.println("\n下载完成:");
-        
-        AsciiTable table = new AsciiTable();
-        table.addRule();
-        table.addRow("股票代码", "数据条数", "开始时间", "结束时间", "状态");
-        table.addRule();
-        
-        int totalRecords = 0;
-        int successCount = 0;
-        
-        for (DownloadResult result : results) {
-            table.addRow(
-                result.getSymbol(),
-                result.getRecordCount(),
-                result.getStartTime(),
-                result.getEndTime(),
-                result.isSuccess() ? "✅ 成功" : "❌ 失败"
-            );
-            
-            totalRecords += result.getRecordCount();
-            if (result.isSuccess()) successCount++;
-        }
-        
-        table.addRule();
-        System.out.println(table.render());
-        
-        System.out.printf("\n总计: %d 个标的, %d 成功, %d 条记录\n",
-            results.size(), successCount, totalRecords);
+    @Override
+    public void printUsage() {
+        printUsageHeader("java -jar trading.jar custom [选项]");
+        System.out.println("自定义命令的详细使用说明...");
     }
 }
 ```
 
-## 14.3 交互式Shell模式
+### 14.6.2 国际化支持
+
+CLI系统支持多语言扩展，可以通过消息资源文件实现国际化：
 
 ```java
 @Component
-public class InteractiveShell {
+public class MessageService {
     
-    @Autowired
-    private CommandRegistry commandRegistry;
+    private final MessageSource messageSource;
+    private final Locale currentLocale;
     
-    @Autowired
-    private TradingContext tradingContext;
-    
-    private Terminal terminal;
-    private LineReader reader;
-    private History history;
-    
-    public void start() {
-        try {
-            // 初始化终端
-            terminal = TerminalBuilder.builder()
-                .system(true)
-                .build();
-            
-            // 创建历史记录
-            history = new DefaultHistory();
-            
-            // 创建行读取器
-            reader = LineReaderBuilder.builder()
-                .terminal(terminal)
-                .completer(new TradingCompleter())
-                .highlighter(new TradingHighlighter())
-                .history(history)
-                .parser(new DefaultParser())
-                .build();
-            
-            // 显示欢迎信息
-            printWelcome();
-            
-            // 主循环
-            String prompt = getPrompt();
-            
-            while (true) {
-                try {
-                    String line = reader.readLine(prompt);
-                    
-                    if (line == null || "exit".equals(line.trim()) || "quit".equals(line.trim())) {
-                        break;
-                    }
-                    
-                    if (!line.trim().isEmpty()) {
-                        processCommand(line);
-                    }
-                    
-                } catch (UserInterruptException e) {
-                    // Ctrl+C
-                    System.out.println("\n使用 'exit' 或 'quit' 退出");
-                } catch (EndOfFileException e) {
-                    // Ctrl+D
-                    break;
-                } catch (Exception e) {
-                    System.err.println("错误: " + e.getMessage());
-                    if (isDebugMode()) {
-                        e.printStackTrace();
-                    }
-                }
-            }
-            
-            // 保存历史
-            saveHistory();
-            
-            System.out.println("\n再见！");
-            
-        } catch (IOException e) {
-            throw new RuntimeException("无法初始化终端", e);
-        }
+    public MessageService() {
+        this.messageSource = new ResourceBundleMessageSource();
+        ((ResourceBundleMessageSource) messageSource).setBasename("messages");
+        this.currentLocale = Locale.getDefault();
     }
     
-    private String getPrompt() {
-        StringBuilder prompt = new StringBuilder();
-        
-        // 添加状态信息
-        if (tradingContext.isConnected()) {
-            prompt.append(Colors.GREEN).append("●").append(Colors.RESET);
-        } else {
-            prompt.append(Colors.RED).append("●").append(Colors.RESET);
-        }
-        
-        // 添加当前模式
-        prompt.append(" [").append(tradingContext.getMode()).append("]");
-        
-        // 添加提示符
-        prompt.append(" trading> ");
-        
-        return prompt.toString();
-    }
-    
-    private void processCommand(String line) {
-        // 解析命令
-        String[] parts = line.trim().split("\\s+");
-        String commandName = parts[0];
-        String[] args = Arrays.copyOfRange(parts, 1, parts.length);
-        
-        // 处理内置命令
-        if (handleBuiltinCommand(commandName, args)) {
-            return;
-        }
-        
-        // 执行注册的命令
-        Command command = commandRegistry.getCommand(commandName);
-        if (command != null) {
-            try {
-                command.execute(args);
-            } catch (Exception e) {
-                System.err.println("命令执行失败: " + e.getMessage());
-            }
-        } else {
-            System.err.println("未知命令: " + commandName);
-            System.err.println("输入 'help' 查看可用命令");
-        }
-    }
-    
-    // 自动补全器
-    private class TradingCompleter implements Completer {
-        
-        @Override
-        public void complete(LineReader reader, ParsedLine line, List<Candidate> candidates) {
-            String buffer = line.word();
-            
-            if (line.wordIndex() == 0) {
-                // 补全命令
-                commandRegistry.getAllCommands().stream()
-                    .map(Command::getName)
-                    .filter(name -> name.startsWith(buffer))
-                    .map(name -> new Candidate(name))
-                    .forEach(candidates::add);
-                
-                // 补全内置命令
-                Arrays.asList("clear", "history", "set", "get", "connect", "disconnect")
-                    .stream()
-                    .filter(cmd -> cmd.startsWith(buffer))
-                    .map(Candidate::new)
-                    .forEach(candidates::add);
-                    
-            } else {
-                // 补全参数
-                completeArguments(line, candidates);
-            }
-        }
-    }
-    
-    // 语法高亮器
-    private class TradingHighlighter implements Highlighter {
-        
-        @Override
-        public AttributedString highlight(LineReader reader, String buffer) {
-            AttributedStringBuilder sb = new AttributedStringBuilder();
-            
-            String[] parts = buffer.split("\\s+", 2);
-            if (parts.length > 0) {
-                // 高亮命令
-                String cmd = parts[0];
-                if (commandRegistry.getCommand(cmd) != null) {
-                    sb.append(cmd, AttributedStyle.DEFAULT.foreground(AttributedStyle.GREEN));
-                } else if (isBuiltinCommand(cmd)) {
-                    sb.append(cmd, AttributedStyle.DEFAULT.foreground(AttributedStyle.CYAN));
-                } else {
-                    sb.append(cmd, AttributedStyle.DEFAULT.foreground(AttributedStyle.RED));
-                }
-                
-                // 添加剩余部分
-                if (parts.length > 1) {
-                    sb.append(" ");
-                    sb.append(parts[1]);
-                }
-            }
-            
-            return sb.toAttributedString();
-        }
+    public String getMessage(String key, Object... args) {
+        return messageSource.getMessage(key, args, currentLocale);
     }
 }
 ```
 
-## 14.4 批处理与脚本支持
+### 14.6.3 插件机制
+
+支持第三方插件扩展CLI功能：
 
 ```java
-@Component
-public class ScriptRunner {
-    
-    @Autowired
-    private CommandRegistry commandRegistry;
-    
-    @Autowired
-    private ScriptParser scriptParser;
-    
-    public void runScript(String scriptFile) throws IOException {
-        Path scriptPath = Paths.get(scriptFile);
-        if (!Files.exists(scriptPath)) {
-            throw new FileNotFoundException("脚本文件不存在: " + scriptFile);
-        }
-        
-        System.out.println("执行脚本: " + scriptFile);
-        System.out.println("=====================================");
-        
-        List<String> lines = Files.readAllLines(scriptPath);
-        ScriptContext context = new ScriptContext();
-        
-        for (int i = 0; i < lines.size(); i++) {
-            String line = lines.get(i).trim();
-            
-            // 跳过空行和注释
-            if (line.isEmpty() || line.startsWith("#")) {
-                continue;
-            }
-            
-            try {
-                // 解析变量替换
-                line = scriptParser.substituteVariables(line, context);
-                
-                // 处理特殊指令
-                if (line.startsWith("@")) {
-                    handleDirective(line, context);
-                    continue;
-                }
-                
-                // 执行命令
-                System.out.println("\n> " + line);
-                executeCommand(line, context);
-                
-                // 处理延迟
-                if (context.hasDelay()) {
-                    Thread.sleep(context.getDelay());
-                    context.clearDelay();
-                }
-                
-            } catch (Exception e) {
-                System.err.println("第 " + (i + 1) + " 行执行失败: " + e.getMessage());
-                
-                if (!context.isContinueOnError()) {
-                    throw new ScriptException("脚本执行中断", e);
-                }
-            }
-        }
-        
-        System.out.println("\n=====================================");
-        System.out.println("脚本执行完成");
-    }
-    
-    private void handleDirective(String directive, ScriptContext context) {
-        if (directive.startsWith("@set ")) {
-            // 设置变量
-            String[] parts = directive.substring(5).split("=", 2);
-            if (parts.length == 2) {
-                context.setVariable(parts[0].trim(), parts[1].trim());
-            }
-            
-        } else if (directive.startsWith("@delay ")) {
-            // 设置延迟
-            int seconds = Integer.parseInt(directive.substring(7).trim());
-            context.setDelay(seconds * 1000);
-            
-        } else if (directive.equals("@continue-on-error")) {
-            // 错误继续
-            context.setContinueOnError(true);
-            
-        } else if (directive.startsWith("@if ")) {
-            // 条件执行
-            handleConditional(directive, context);
-            
-        } else if (directive.startsWith("@loop ")) {
-            // 循环执行
-            handleLoop(directive, context);
-        }
-    }
-    
-    private void executeCommand(String line, ScriptContext context) {
-        // 支持管道
-        if (line.contains("|")) {
-            executePipeline(line, context);
-            return;
-        }
-        
-        // 支持重定向
-        String outputFile = null;
-        if (line.contains(">")) {
-            String[] parts = line.split(">", 2);
-            line = parts[0].trim();
-            outputFile = parts[1].trim();
-        }
-        
-        // 解析命令
-        String[] parts = line.split("\\s+");
-        String commandName = parts[0];
-        String[] args = Arrays.copyOfRange(parts, 1, parts.length);
-        
-        // 执行命令
-        Command command = commandRegistry.getCommand(commandName);
-        if (command == null) {
-            throw new ScriptException("未知命令: " + commandName);
-        }
-        
-        // 捕获输出
-        if (outputFile != null) {
-            captureOutput(() -> command.execute(args), outputFile);
-        } else {
-            command.execute(args);
-        }
-    }
-}
-
-// 脚本示例文件: daily-trading.script
-/*
-# 每日交易脚本
-# 设置变量
-@set MARKET=HK
-@set CAPITAL=100000
-@set STRATEGY=MACD
-
-# 更新数据
-data update --market ${MARKET} --symbols 00700.HK,2800.HK,3033.HK
-
-# 延迟5秒
-@delay 5
-
-# 运行回测
-backtest --strategy ${STRATEGY} --symbol 00700.HK --from 2024-01-01 --capital ${CAPITAL} > backtest-result.txt
-
-# 如果回测成功，启动模拟交易
-@if LAST_COMMAND_SUCCESS
-  trade --mode paper --strategy ${STRATEGY} --capital ${CAPITAL}
-@endif
-
-# 生成日报
-report daily --output ./reports/daily-${DATE}.pdf
-*/
-```
-
-## 14.5 CLI配置文件
-
-```yaml
-# cli-config.yml
-cli:
-  # 默认设置
-  defaults:
-    market: HK
-    interval: 30m
-    capital: 100000
-    output-format: table  # table, json, csv
-    color-output: true
-    
-  # 命令别名
-  aliases:
-    bt: backtest
-    t: trade
-    d: data
-    dl: "data download"
-    pos: position
-    pnl: "report pnl"
-    q: quit
-    
-  # 自动补全
-  autocomplete:
-    enabled: true
-    history-size: 1000
-    history-file: ~/.trading-cli-history
-    
-  # 输出设置
-  output:
-    colors:
-      success: green
-      error: red
-      warning: yellow
-      info: cyan
-    progress-bar:
-      style: unicode  # ascii, unicode
-      width: 40
-    table:
-      border-style: double  # single, double, ascii
-      
-  # 快捷键绑定
-  keybindings:
-    ctrl-c: interrupt
-    ctrl-d: exit
-    ctrl-l: clear
-    ctrl-r: search-history
-    f1: help
-    f2: status
-    f3: positions
-    f4: orders
-    f5: refresh
-    
-  # 交易确认
-  trading:
-    require-confirmation:
-      live: true
-      paper: false
-    confirmation-timeout: 30  # 秒
-    
-  # 数据源配置
-  data-sources:
-    futu:
-      host: 127.0.0.1
-      port: 11111
-    yahoo:
-      api-key: ${YAHOO_API_KEY}
-    
-  # 日志设置
-  logging:
-    level: INFO  # DEBUG, INFO, WARN, ERROR
-    file: ./logs/cli.log
-    rotate-size: 10MB
-    max-files: 5
-```
-
-## 14.6 使用示例
-
-```bash
-# 1. 基础命令示例
-
-# 查看帮助
-java -jar trading.jar help
-
-# 回测MACD策略
-java -jar trading.jar backtest \
-  --strategy MACD \
-  --symbol 00700.HK \
-  --from 2024-01-01 \
-  --to 2024-12-31 \
-  --capital 100000 \
-  --output ./reports/backtest.html
-
-# 参数优化
-java -jar trading.jar backtest \
-  --strategy MACD \
-  --symbol 2800.HK \
-  --optimize \
-  --param-grid "fast:10-15:1,slow:20-30:2,signal:5-10:1" \
-  --metric sharpe
-
-# 2. 数据管理
-
-# 下载港股数据
-java -jar trading.jar data download \
-  --market HK \
-  --symbols 00700.HK,2800.HK,3033.HK \
-  --from 2023-01-01 \
-  --interval 30m \
-  --format parquet
-
-# 下载美股数据
-java -jar trading.jar data download \
-  --market US \
-  --symbols AAPL,GOOGL,MSFT,TSLA \
-  --from 2023-01-01 \
-  --interval 1h \
-  --output ./data/us-stocks
-
-# 更新数据
-java -jar trading.jar data update --all
-
-# 清理旧数据
-java -jar trading.jar data clean --before 2022-01-01
-
-# 3. 交易执行
-
-# 模拟交易
-java -jar trading.jar trade \
-  --mode paper \
-  --strategy BOLL \
-  --symbols 2800.HK,3033.HK \
-  --capital 100000 \
-  --risk-per-trade 0.02
-
-# 实盘交易（需要确认）
-java -jar trading.jar trade \
-  --mode live \
-  --strategy MACD \
-  --symbol 00700.HK \
-  --capital 50000 \
-  --max-positions 3
-
-# 4. 查询与监控
-
-# 查看当前持仓
-java -jar trading.jar position list --detail
-
-# 查看历史订单
-java -jar trading.jar orders \
-  --from 2024-01-01 \
-  --status filled
-
-# 查看盈亏报告
-java -jar trading.jar report pnl \
-  --period month \
-  --format pdf
-
-# 实时监控
-java -jar trading.jar monitor \
-  --refresh 5 \
-  --alerts true
-
-# 5. 策略管理
-
-# 列出所有策略
-java -jar trading.jar strategy list
-
-# 查看策略详情
-java -jar trading.jar strategy info MACD
-
-# 设置策略参数
-java -jar trading.jar strategy set MACD \
-  --param fast=12 \
-  --param slow=26 \
-  --param signal=9
-
-# 启用/禁用策略
-java -jar trading.jar strategy enable MACD
-java -jar trading.jar strategy disable BOLL
-
-# 6. 交互式Shell模式
-
-# 进入交互式模式
-java -jar trading.jar shell
-
-# 在Shell中执行命令
-trading> backtest -s MACD -sym 00700.HK
-trading> status
-trading> positions
-trading> set capital 200000
-trading> connect
-trading> trade --mode paper
-trading> stop
-trading> exit
-
-# 7. 批处理脚本
-
-# 执行脚本文件
-java -jar trading.jar script run daily-trading.script
-
-# 定时执行（配合cron）
-0 9 * * 1-5 java -jar trading.jar script run morning-check.script
-0 15 * * 1-5 java -jar trading.jar script run afternoon-trade.script
-
-# 8. 高级用法
-
-# 管道组合
-java -jar trading.jar data list | grep "00700" | java -jar trading.jar backtest --stdin
-
-# 并行回测
-java -jar trading.jar backtest \
-  --parallel 4 \
-  --symbols 00700.HK,2800.HK,3033.HK,0005.HK \
-  --strategy ALL
-
-# 参数扫描
-java -jar trading.jar optimize \
-  --strategy MACD \
-  --method grid \
-  --params "fast:8-15,slow:20-35,signal:5-12" \
-  --metric "sharpe,return,drawdown" \
-  --workers 8
-
-# 导出配置
-java -jar trading.jar config export > my-config.yml
-
-# 导入配置
-java -jar trading.jar config import my-config.yml
-```
-
-## 14.7 CLI扩展机制
-
-```java
-// 自定义命令插件接口
-public interface CommandPlugin {
+public interface CLIPlugin {
     String getName();
     String getVersion();
     List<Command> getCommands();
-    void initialize(PluginContext context);
+    void initialize();
 }
 
-// 插件加载器
 @Component
-public class PluginLoader {
+public class PluginManager {
     
-    private final List<CommandPlugin> plugins = new ArrayList<>();
-    
-    @PostConstruct
+    @EventListener(ApplicationReadyEvent.class)
     public void loadPlugins() {
         // 扫描插件目录
-        Path pluginDir = Paths.get("./plugins");
-        if (!Files.exists(pluginDir)) {
-            return;
-        }
-        
-        try {
-            Files.list(pluginDir)
-                .filter(p -> p.toString().endsWith(".jar"))
-                .forEach(this::loadPlugin);
-                
-            logger.info("已加载 {} 个插件", plugins.size());
-            
-        } catch (IOException e) {
-            logger.error("加载插件失败", e);
-        }
-    }
-    
-    private void loadPlugin(Path jarPath) {
-        try {
-            URLClassLoader classLoader = new URLClassLoader(
-                new URL[]{jarPath.toUri().toURL()},
-                getClass().getClassLoader()
-            );
-            
-            // 查找插件类
-            ServiceLoader<CommandPlugin> loader = ServiceLoader.load(
-                CommandPlugin.class, classLoader
-            );
-            
-            for (CommandPlugin plugin : loader) {
-                plugin.initialize(createPluginContext());
-                plugins.add(plugin);
-                
-                // 注册插件命令
-                plugin.getCommands().forEach(commandRegistry::register);
-                
-                logger.info("已加载插件: {} v{}", 
-                    plugin.getName(), plugin.getVersion());
-            }
-            
-        } catch (Exception e) {
-            logger.error("加载插件失败: {}", jarPath, e);
-        }
+        // 加载插件JAR文件
+        // 注册插件命令
     }
 }
 ```
 
-这个CLI系统提供了完整的命令行交易功能，包括：
+## 14.7 性能优化
 
-1. **全功能命令行界面** - 支持回测、交易、数据管理等所有核心功能
-2. **交互式Shell模式** - 提供类似终端的交互体验，支持自动补全和语法高亮
-3. **批处理脚本** - 支持脚本自动化执行，包括变量、条件和循环
-4. **多市场支持** - 可以处理港股、美股、A股等多个市场的数据
-5. **安全机制** - 实盘交易需要多重确认，防止误操作
-6. **插件扩展** - 支持自定义命令插件，方便功能扩展
-7. **丰富的输出格式** - 支持表格、图表、进度条等多种展示方式
+### 14.7.1 快速启动优化
+- 延迟初始化非关键组件
+- 命令执行时才加载相关服务
+- 减少Spring容器启动时间
+
+### 14.7.2 内存优化
+- 大数据集分批处理
+- 及时释放不用的对象引用
+- 使用流式处理避免内存积累
+
+### 14.7.3 并发优化
+- 异步执行长时间操作
+- 并行处理多个数据源
+- 使用CompletableFuture提升响应性
+
+通过这个完整的CLI系统，用户可以获得专业级的命令行交易体验，支持复杂的回测分析、丰富的输出格式和灵活的扩展机制。
