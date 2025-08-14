@@ -151,6 +151,73 @@ springdoc:
     path: /swagger-ui.html
     try-it-out-enabled: true
     
+# Historical Data Configuration
+historical-data:
+  download:
+    # 下载配置
+    batch-size: 5                    # 并发下载股票数量
+    page-size: 1000                  # 每页数据量
+    retry-times: 3                   # 失败重试次数
+    retry-delay: 5000               # 重试延迟(毫秒)
+    max-concurrent-tasks: 3          # 最大并发任务数
+    auto-retry-failed: true          # 自动重试失败任务
+    max-retry-attempts: 3            # 最大重试次数
+    retry-delay-hours: 2             # 重试间隔(小时)
+    
+  validation:
+    # 数据校验配置
+    enable-integrity-check: true     # 启用完整性检查
+    enable-quality-report: true      # 启用质量报告
+    min-quality-score: 60           # 最低质量分数
+    max-price-change-rate: 50       # 最大涨跌幅限制(%)
+    
+  update:
+    # 增量更新配置
+    enable-auto-update: true         # 启用自动更新
+    cron-expression: "0 0 2 * * ?"  # 每天凌晨2点更新
+    warmup-days: 30                 # 预热数据天数
+    
+  cleanup:
+    # 数据清理配置
+    enable-auto-cleanup: true        # 启用自动清理
+    cleanup-cron: "0 0 3 * * SUN"  # 每周日凌晨3点清理
+    keep-days-by-kline-type:        # 不同K线类型保留天数
+      K_1MIN: 7                     # 1分钟K线保留7天
+      K_5MIN: 30                    # 5分钟K线保留30天
+      K_15MIN: 90                   # 15分钟K线保留90天
+      K_30MIN: 180                  # 30分钟K线保留180天
+      K_60MIN: 365                  # 60分钟K线保留1年
+      K_DAY: -1                     # 日K线永久保留
+      K_WEEK: -1                    # 周K线永久保留
+      K_MONTH: -1                   # 月K线永久保留
+    
+  markets:
+    # 市场配置
+    hk:
+      # 港股配置
+      trading-hours: "09:30-12:00,13:00-16:08"
+      timezone: "Asia/Hong_Kong"
+      holidays-api-enabled: false
+      
+    cn:
+      # A股配置  
+      trading-hours: "09:30-11:30,13:00-15:00"
+      timezone: "Asia/Shanghai"
+      holidays-api-enabled: false
+      
+    us:
+      # 美股配置
+      trading-hours: "09:30-16:00"  # EST时间
+      timezone: "America/New_York"
+      holidays-api-enabled: false
+      
+  storage:
+    # 存储配置
+    enable-compression: true         # 启用数据压缩
+    enable-partitioning: true        # 启用分区表
+    partition-strategy: "MONTHLY"    # 分区策略(MONTHLY/YEARLY)
+    enable-indexing: true           # 启用自动索引
+    
 # Development Tools
 debug: false
 trace: false

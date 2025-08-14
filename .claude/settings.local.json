@@ -81,7 +81,8 @@
       "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn spring-boot:run -Dspring.profiles.active=dev -Dmaven.test.skip=true -Dspring-boot.run.mainClass=com.trading.TestIndicatorValidation)",
       "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mkdir -p src/test/java/com/trading/validation)",
       "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn test -Dtest=TechnicalIndicatorValidationTest -q)",
-      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn test-compile -q)"
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn test-compile -q)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn test -Dtest=HistoricalDataServiceTest -q)"
     ],
     "deny": [],
     "ask": []
