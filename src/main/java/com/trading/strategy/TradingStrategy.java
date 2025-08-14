@@ -141,6 +141,10 @@ public interface TradingStrategy {
         public BigDecimal getConfidence() { return confidence; }
         public void setConfidence(BigDecimal confidence) { this.confidence = confidence; }
         
+        // Alias for confidence
+        public BigDecimal getStrength() { return confidence; }
+        public void setStrength(BigDecimal strength) { this.confidence = strength; }
+        
         public String getReason() { return reason; }
         public void setReason(String reason) { this.reason = reason; }
         

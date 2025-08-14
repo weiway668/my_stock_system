@@ -156,3 +156,4 @@ docker-compose.override.yml
 # Misc
 .history/
 .cache/
+outjar/

@@ -53,7 +53,22 @@
       "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn spring-boot:run -Dspring.profiles.active=dev -Dmaven.test.skip=true -Dspring-boot.run.arguments=\"test-futu\")",
       "Bash(sed:*)",
       "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn clean install)",
-      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn clean install -DskipTests)"
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn clean install -DskipTests)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn clean package -DskipTests)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn spring-boot:run -Dspring.profiles.active=dev -Dmaven.test.skip=true -Dspring-boot.run.arguments=\"backtest --strategy BOLL --symbol 02800.HK --start-date 2024-01-01 --end-date 2024-12-31 --initial-capital 100000 --output-dir ./output\")",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn spring-boot:run -Dspring.profiles.active=dev -Dmaven.test.skip=true -Dspring-boot.run.arguments=\"backtest --strategy BOLL --symbol 02800.HK --from 2024-01-01 --to 2024-12-31 --capital 100000 --output ./output\")",
+      "Bash(git log:*)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn test -Dtest=FutuConfigurationTest -q)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn clean compile test-compile -q)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn test -Dtest=FutuMarketDataServiceImplTest -q)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn compile -q -DskipTests)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH grep -r \"getPreClosePrice\" /Users/weiway/ai_workspace/java/my_stock_system/outjar/)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH javac -version)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn spring-boot:run -Dspring.profiles.active=dev -Dmaven.test.skip=true -Dspring-boot.run.mainClass=com.trading.TestDataConversion)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH javap -public com.futu.openapi.pb.QotRequestHistoryKL$Response)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn compile)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn clean compile)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH javap -classpath \"/Users/weiway/ai_workspace/java/my_stock_system/outjar/FTAPI4J_9.3.5308/ftapi4j/ftapi4j.jar\" com.futu.openapi.pb.QotCommon$KLine)"
     ],
     "deny": [],
     "ask": []

@@ -94,63 +94,34 @@ trading:
     end-date: 2024-12-31
     initial-capital: 100000
     
-  # FUTU OpenAPI Configuration for Development
+  # FUTU官方SDK配置
   futu:
     connection:
       host: 127.0.0.1
-      port: 11111  # API端口
-      websocket-port: 33333  # WebSocket端口
-      websocket-key: 76c673e18db4e127  # WebSocket密钥
+      port: 11111  # FUTU OpenD端口
       connection-timeout: 10000
       read-timeout: 30000
       heartbeat-interval: 30000
       max-retry-attempts: 3
-      retry-delay: 5000
+      retry-delay-ms: 5000
       
-    # 行情订阅配置
+    # 行情配置
     quote:
-      max-subscriptions: 500
-      batch-size: 100
+      max-subscriptions: 50  # 开发环境限制订阅数量
       push-enabled: true
       
     # 交易配置
     trade:
-      account-id: ""  # 在运行时设置
-      unlock-password: ""  # 在运行时通过环境变量设置
+      unlock-password: ""  # 模拟环境通常不需要密码
       environment: SIMULATE  # SIMULATE|REAL
       market: HK  # HK|US|CN
       
-    # API限流配置
-    rate-limit:
-      quote-per-second: 30
-      trade-per-second: 10
-      query-per-second: 20
-      max-retry-attempts: 3
-      retry-delay-ms: 5000
-      keep-alive: true
-      heartbeat-interval: 30000
-    
-    environment:
-      type: SIMULATE
-      paper-trading: true
-      market-region: HK
-      currency: HKD
-    
-    market-data:
-      enable-real-time: true
-      max-subscriptions: 50  # Reduced for dev environment
-      default-timeframe: "30m"
-      max-historical-records: 500  # Reduced for dev
-      enable-data-validation: true
-      real-time-cache-expiry: 300  # 5 minutes
-    
+    # 账户配置
     account:
       auto-select-account: true
-      max-positions: 5  # Reduced for dev
-      max-order-value: 10000.0  # Reduced for dev
+      max-positions: 5  # 开发环境限制
+      max-order-value: 10000.0  # 开发环境限制
       enable-risk-control: true
-      daily-loss-limit: 0.02  # 2% for safety in dev
-      position-size-limit: 0.2  # 20%
     
 # Disruptor Configuration for Development
 disruptor:

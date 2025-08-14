@@ -1,0 +1,124 @@
+# 回测环境配置
+spring:
+  # 数据库配置 - 使用内存H2数据库
+  datasource:
+    url: jdbc:h2:mem:backtestdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=MySQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: 
+    hikari:
+      pool-name: BacktestHikariPool
+      maximum-pool-size: 5
+      minimum-idle: 2
+
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+
+  # 缓存配置 - 使用简单缓存
+  cache:
+    type: simple
+
+  # Redis配置 - 回测环境可选
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password: 
+      timeout: 2000ms
+
+# 日志配置
+logging:
+  level:
+    root: INFO
+    com.trading: INFO
+    com.trading.backtest: DEBUG
+    com.trading.strategy: DEBUG
+    com.trading.infrastructure.futu: DEBUG
+    org.springframework: WARN
+    org.hibernate: WARN
+
+# 交易系统配置
+trading:
+  execution:
+    mode: BACKTEST
+    mock-data: false  # 使用真实数据
+    
+  monitoring:
+    enabled: true
+    log-all-signals: true
+    log-all-orders: true
+    
+  # FUTU OpenAPI配置
+  futu:
+    connection:
+      host: 127.0.0.1
+      port: 11111
+      connection-timeout: 10000
+      read-timeout: 30000
+      max-retry-attempts: 3
+      retry-delay-ms: 1000
+      keep-alive: true
+      heartbeat-interval: 30000
+    
+    environment:
+      type: REAL  # 使用真实数据
+      paper-trading: false
+      market-region: HK
+      currency: HKD
+    
+    market-data:
+      enable-real-time: false  # 回测不需要实时数据
+      max-subscriptions: 0
+      default-timeframe: "1d"  # 日K线
+      max-historical-records: 5000  # 最多获取5000条历史记录
+      enable-data-validation: true
+      real-time-cache-expiry: 0  # 回测不缓存实时数据
+    
+    account:
+      auto-select-account: false
+      max-positions: 10
+      max-order-value: 1000000.0
+      enable-risk-control: true
+      daily-loss-limit: 0.10  # 10%日内止损
+      position-size-limit: 0.95  # 单个仓位最大95%
+
+# 回测引擎配置
+backtest:
+  # 数据获取配置
+  data:
+    preload-days: 30  # 预加载30天数据用于技术指标计算
+    cache-enabled: true
+    cache-size: 10000
+    
+  # 执行配置
+  execution:
+    parallel-enabled: false  # 回测使用单线程确保顺序
+    progress-log-interval: 100  # 每100个K线记录一次进度
+    
+  # 费用配置（港股）
+  fees:
+    commission-rate: 0.00025  # 0.025% 佣金
+    min-commission: 3.0  # 最低佣金3港元
+    stamp-duty-rate: 0.0013  # 0.13% 印花税（卖出时收取）
+    trading-fee: 0.00005  # 0.005% 交易费
+    settlement-fee: 0.00002  # 0.002% 结算费
+    slippage-rate: 0.0001  # 0.01% 滑点
+    
+  # 风险管理
+  risk:
+    max-drawdown: 0.20  # 最大回撤20%
+    stop-loss: 0.05  # 单笔止损5%
+    take-profit: 0.10  # 单笔止盈10%
+    position-limit: 0.95  # 最大仓位95%
+    
+  # 报告配置
+  report:
+    generate-html: true
+    generate-csv: true
+    generate-json: true
+    output-dir: ./backtest-results
+    include-charts: true
+    include-trade-details: true

@@ -155,16 +155,51 @@ public class BacktestEngine {
                     .build();
         }
 
-        // 简化版指标计算（实际应使用TechnicalAnalysisService）
-        MarketData latest = data.get(data.size() - 1);
-
-        return TechnicalIndicators.builder()
+        try {
+            // 使用TechnicalAnalysisService计算真实指标
+            MarketData latest = data.get(data.size() - 1);
+            String symbol = latest.getSymbol();
+            LocalDateTime endTime = latest.getTimestamp();
+            
+            // 调用技术分析服务计算指标
+            TechnicalIndicators indicators = technicalAnalysisService.calculateIndicators(
+                symbol, "1d", endTime).get();
+            
+            // 如果服务返回null，使用简化计算
+            if (indicators == null || indicators.getBollingerMiddle() == null) {
+                log.debug("技术分析服务未返回有效指标，使用简化计算");
+                return TechnicalIndicators.builder()
+                    .macdLine(calculateSimpleMACD(data))
+                    .rsi(calculateSimpleRSI(data))
+                    .sma20(calculateSMA(data, 20))
+                    .volumeRatio(calculateVolumeRatio(data))
+                    
+                    // 添加简化的布林带计算
+                    .middleBand(calculateSMA(data, 20))
+                    .upperBand(calculateBollingerUpper(data))
+                    .lowerBand(calculateBollingerLower(data))
+                    
+                    .calculatedAt(LocalDateTime.now())
+                    .build();
+            }
+            
+            return indicators;
+            
+        } catch (Exception e) {
+            log.error("技术指标计算失败，使用简化版本", e);
+            
+            // 降级到简化计算
+            return TechnicalIndicators.builder()
                 .macdLine(calculateSimpleMACD(data))
                 .rsi(calculateSimpleRSI(data))
                 .sma20(calculateSMA(data, 20))
                 .volumeRatio(calculateVolumeRatio(data))
+                .middleBand(calculateSMA(data, 20))
+                .upperBand(calculateBollingerUpper(data))
+                .lowerBand(calculateBollingerLower(data))
                 .calculatedAt(LocalDateTime.now())
                 .build();
+        }
     }
 
     /**
@@ -496,6 +531,36 @@ public class BacktestEngine {
         }
 
         return maxDrawdown;
+    }
+
+    private BigDecimal calculateBollingerUpper(List<MarketData> data) {
+        BigDecimal sma = calculateSMA(data, 20);
+        BigDecimal stdDev = calculateStandardDeviation(data, 20);
+        return sma.add(stdDev.multiply(BigDecimal.valueOf(2)));
+    }
+    
+    private BigDecimal calculateBollingerLower(List<MarketData> data) {
+        BigDecimal sma = calculateSMA(data, 20);
+        BigDecimal stdDev = calculateStandardDeviation(data, 20);
+        return sma.subtract(stdDev.multiply(BigDecimal.valueOf(2)));
+    }
+    
+    private BigDecimal calculateStandardDeviation(List<MarketData> data, int period) {
+        if (data.size() < period) {
+            return BigDecimal.ZERO;
+        }
+        
+        List<MarketData> subList = data.subList(data.size() - period, data.size());
+        BigDecimal mean = calculateSMA(data, period);
+        
+        BigDecimal variance = BigDecimal.ZERO;
+        for (MarketData md : subList) {
+            BigDecimal diff = md.getClose().subtract(mean);
+            variance = variance.add(diff.multiply(diff));
+        }
+        
+        variance = variance.divide(BigDecimal.valueOf(period), 6, RoundingMode.HALF_UP);
+        return BigDecimal.valueOf(Math.sqrt(variance.doubleValue()));
     }
 
     private BigDecimal calculateSharpeRatio(Map<LocalDateTime, BigDecimal> equityCurve) {

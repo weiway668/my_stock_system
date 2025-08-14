@@ -3,8 +3,8 @@ package com.trading.service;
 import com.trading.domain.entity.MarketData;
 import com.trading.domain.vo.TechnicalIndicators;
 import com.trading.infrastructure.cache.CacheService;
-import com.trading.infrastructure.futu.FutuConnectionManager;
-import com.trading.infrastructure.futu.SimpleFutuMarketDataProvider;
+import com.trading.infrastructure.futu.FutuConnection;
+import com.trading.infrastructure.futu.FutuWebSocketClient;
 import com.trading.repository.MarketDataRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,14 +32,14 @@ import java.util.concurrent.TimeoutException;
 @Service
 public class MarketDataService {
 
-    @Autowired
-    private FutuConnectionManager connectionManager;
+    @Autowired(required = false)
+    private FutuConnection futuConnection;
+    @Autowired(required = false) 
+    private FutuWebSocketClient futuWebSocketClient;
     @Autowired
     private MarketDataRepository marketDataRepository;
     @Autowired
     private CacheService cacheService;
-    @Autowired(required = false)
-    private SimpleFutuMarketDataProvider futuDataProvider;
 
     private static final DateTimeFormatter ID_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss");
 
@@ -66,8 +66,8 @@ public class MarketDataService {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 // Check if connection is available
-                if (!connectionManager.isQuoteConnected()) {
-                    log.warn("Quote connection not available for symbol: {}", symbol);
+                if (futuConnection == null || !futuConnection.isConnected()) {
+                    log.warn("FUTU connection not available for symbol: {}", symbol);
                     return getHistoricalDataFromDatabase(symbol, timeframe, startTime, endTime, limit);
                 }
 
@@ -107,60 +107,15 @@ public class MarketDataService {
             log.debug("从FUTU API获取K线数据: symbol={}, timeframe={}", symbol, timeframe);
             
             // 检查连接状态
-            if (!futuDataProvider.isConnected()) {
+            if (futuConnection == null || !futuConnection.isConnected()) {
                 log.warn("FUTU未连接，使用模拟数据");
                 return generateSimulatedMarketData(symbol, timeframe, startTime, endTime, limit);
             }
             
-            // 转换为LocalDate
-            LocalDate startDate = startTime.toLocalDate();
-            LocalDate endDate = endTime.toLocalDate();
-            
-            // 获取K线数据
-            List<SimpleFutuMarketDataProvider.KLineData> klineDataList = 
-                futuDataProvider.getHistoricalData(symbol, startDate, endDate)
-                    .get(10, TimeUnit.SECONDS);
-            
-            if (klineDataList == null || klineDataList.isEmpty()) {
-                log.warn("FUTU API未返回K线数据，使用模拟数据");
-                return generateSimulatedMarketData(symbol, timeframe, startTime, endTime, limit);
-            }
-            
-            // 转换为MarketData格式
-            List<MarketData> marketDataList = new ArrayList<>();
-            for (SimpleFutuMarketDataProvider.KLineData kl : klineDataList) {
-                try {
-                    MarketData marketData = MarketData.builder()
-                        .id(symbol + "_" + kl.getTime().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")))
-                        .symbol(symbol)
-                        .open(kl.getOpen())
-                        .high(kl.getHigh())
-                        .low(kl.getLow())
-                        .close(kl.getClose())
-                        .volume(kl.getVolume())
-                        .turnover(kl.getTurnover())
-                        .timestamp(kl.getTime())
-                        .timeframe(timeframe)
-                        .createdAt(LocalDateTime.now())
-                        .updatedAt(LocalDateTime.now())
-                        .build();
-                    
-                    marketDataList.add(marketData);
-                    
-                    if (marketDataList.size() >= limit) {
-                        break;
-                    }
-                } catch (Exception e) {
-                    log.warn("转换K线数据失败: {}", e.getMessage());
-                }
-            }
-            
-            log.info("成功获取{}条K线数据", marketDataList.size());
-            return marketDataList;
-            
-        } catch (TimeoutException e) {
-            log.error("获取K线数据超时: symbol={}", symbol);
+            // 暂时使用模拟数据，在Phase 4中实现真实的K线数据获取
+            log.info("暂时使用模拟K线数据，待Phase 4中实现真实API调用");
             return generateSimulatedMarketData(symbol, timeframe, startTime, endTime, limit);
+            
         } catch (Exception e) {
             log.error("获取K线数据异常: symbol={}", symbol, e);
             return generateSimulatedMarketData(symbol, timeframe, startTime, endTime, limit);
@@ -490,7 +445,7 @@ public class MarketDataService {
      * Check if market data service is healthy
      */
     public boolean isHealthy() {
-        return connectionManager.isQuoteConnected() || canAccessDatabase();
+        return (futuConnection != null && futuConnection.isConnected()) || canAccessDatabase();
     }
 
     /**
@@ -524,23 +479,9 @@ public class MarketDataService {
                     return priceData;
                 }
                 
-                // 从FUTU API获取实时价格
-                if (futuDataProvider.isConnected()) {
-                    try {
-                        BigDecimal price = futuDataProvider.getRealtimePrice(symbol)
-                            .get(5, TimeUnit.SECONDS);
-                        
-                        if (price != null && price.compareTo(BigDecimal.ZERO) > 0) {
-                            PriceData priceData = new PriceData();
-                            priceData.setSymbol(symbol);
-                            priceData.setPrice(price);
-                            priceData.setTimestamp(LocalDateTime.now());
-                            
-                            return priceData;
-                        }
-                    } catch (Exception ex) {
-                        log.warn("获取实时价格失败: {}", ex.getMessage());
-                    }
+                // 暂时使用模拟价格，在Phase 4中实现真实的实时价格获取
+                if (futuConnection != null && futuConnection.isConnected()) {
+                    log.debug("FUTU已连接，但暂时使用模拟价格数据");
                 }
                 
                 // 如果获取失败，返回模拟数据

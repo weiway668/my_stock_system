@@ -131,13 +131,7 @@
             <version>${ta4j.version}</version>
         </dependency>
 
-        <!-- FUTU API Dependencies -->
-        <!-- Protocol Buffers for FUTU API -->
-        <dependency>
-            <groupId>com.google.protobuf</groupId>
-            <artifactId>protobuf-java</artifactId>
-            <version>3.25.1</version>
-        </dependency>
+   
         
         <!-- Netty for TCP communication with FUTU OpenD -->
         <dependency>
@@ -323,6 +317,32 @@
             <artifactId>futu-api</artifactId>
             <version>9.3.5308</version>
         </dependency>
+
+        <!-- FUTU API Dependencies -->
+
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <version>3.5.1</version>
+          </dependency>
+          <!-- https://mvnrepository.com/artifact/com.google.protobuf/protobuf-java-util -->
+          <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java-util</artifactId>
+            <version>3.5.1</version>
+          </dependency>
+          <!-- https://mvnrepository.com/artifact/org.bouncycastle/bcprov-jdk15on -->
+          <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk15on</artifactId>
+            <version>1.68</version>
+          </dependency>
+          <!-- https://mvnrepository.com/artifact/org.bouncycastle/bcpkix-jdk15on -->
+          <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk15on</artifactId>
+            <version>1.68</version>
+          </dependency>
     </dependencies>
 
     <build>

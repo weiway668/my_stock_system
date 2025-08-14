@@ -37,6 +37,19 @@ public class TechnicalIndicators {
     private BigDecimal bandwidth;   // Band width indicator
     private BigDecimal percentB;    // %B indicator
     
+    // Bollinger Band getters with aliases
+    public BigDecimal getBollingerUpper() {
+        return upperBand;
+    }
+    
+    public BigDecimal getBollingerMiddle() {
+        return middleBand;
+    }
+    
+    public BigDecimal getBollingerLower() {
+        return lowerBand;
+    }
+    
     // Momentum Indicators
     private BigDecimal rsi;         // Relative Strength Index
     private BigDecimal stochK;      // Stochastic %K

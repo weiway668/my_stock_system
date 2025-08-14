@@ -8,6 +8,7 @@ import com.trading.cli.AbstractCommand;
 import com.trading.cli.CommandException;
 import com.trading.strategy.TradingStrategy;
 import com.trading.strategy.impl.MACDTradingStrategy;
+import com.trading.strategy.impl.BollingerBandMeanReversionStrategy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
@@ -256,8 +257,7 @@ public class BacktestCommand extends AbstractCommand {
             case "MACD":
                 return new MACDTradingStrategy();
             case "BOLL":
-                // TODO: 实现BOLL策略
-                throw CommandException.invalidArgument(getName(), null, "BOLL策略暂未实现");
+                return new BollingerBandMeanReversionStrategy();
             case "VOLUME":
                 // TODO: 实现VOLUME策略
                 throw CommandException.invalidArgument(getName(), null, "VOLUME策略暂未实现");

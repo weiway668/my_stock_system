@@ -26,17 +26,23 @@ import lombok.extern.slf4j.Slf4j;
 @ConditionalOnProperty(name = "trading.futu.connection.host")
 public class FutuHealthIndicator implements HealthIndicator {
 
-    private final FutuConnectionManager connectionManager;
+    private final FutuConnection futuConnection;
 
     private static final int HEARTBEAT_TIMEOUT_MINUTES = 2;
 
     @Override
     public Health health() {
         try {
-            FutuConnectionManager.ConnectionStatus status = connectionManager.getConnectionStatus();
+            if (futuConnection == null) {
+                return Health.down()
+                    .withDetail("error", "FUTU connection not available")
+                    .build();
+            }
+            
+            FutuConnection.ConnectionStatus status = futuConnection.getConnectionStatus();
 
             // Check overall connection health
-            if (status.isHealthy()) {
+            if (status.isConnected()) {
                 return createHealthyStatus(status);
             } else {
                 return createUnhealthyStatus(status);
@@ -54,7 +60,7 @@ public class FutuHealthIndicator implements HealthIndicator {
     /**
      * Create healthy status response
      */
-    private Health createHealthyStatus(FutuConnectionManager.ConnectionStatus status) {
+    private Health createHealthyStatus(FutuConnection.ConnectionStatus status) {
         Map<String, Object> details = createStatusDetails(status);
         details.put("status", "All connections healthy");
 
@@ -66,7 +72,7 @@ public class FutuHealthIndicator implements HealthIndicator {
     /**
      * Create unhealthy status response
      */
-    private Health createUnhealthyStatus(FutuConnectionManager.ConnectionStatus status) {
+    private Health createUnhealthyStatus(FutuConnection.ConnectionStatus status) {
         Map<String, Object> details = createStatusDetails(status);
 
         // Determine specific issues
@@ -81,32 +87,32 @@ public class FutuHealthIndicator implements HealthIndicator {
     /**
      * Create status details map
      */
-    private Map<String, Object> createStatusDetails(FutuConnectionManager.ConnectionStatus status) {
+    private Map<String, Object> createStatusDetails(FutuConnection.ConnectionStatus status) {
         Map<String, Object> details = new LinkedHashMap<>();
 
-        // Connection status
-        details.put("quoteConnected", status.isQuoteConnected());
-        details.put("tradeConnected", status.isTradeConnected());
+        // Basic connection status
+        details.put("connected", status.isConnected());
         details.put("connecting", status.isConnecting());
-        details.put("fullyConnected", status.isHealthy());
 
-        // Retry information
+        // Timing information
+        if (status.getLastConnectTime() != null) {
+            details.put("lastConnectTime", status.getLastConnectTime().toString());
+            details.put("connectAge", getHeartbeatAge(status.getLastConnectTime()));
+        }
+
+        if (status.getLastDisconnectTime() != null) {
+            details.put("lastDisconnectTime", status.getLastDisconnectTime().toString());
+            details.put("disconnectAge", getHeartbeatAge(status.getLastDisconnectTime()));
+        }
+
+        // Retry and error information
         details.put("retryCount", status.getRetryCount());
-
-        // Heartbeat information
-        if (status.getLastQuoteHeartbeat() != null) {
-            details.put("lastQuoteHeartbeat", status.getLastQuoteHeartbeat().toString());
-            details.put("quoteHeartbeatAge", getHeartbeatAge(status.getLastQuoteHeartbeat()));
+        if (status.getErrorMessage() != null) {
+            details.put("errorMessage", status.getErrorMessage());
         }
 
-        if (status.getLastTradeHeartbeat() != null) {
-            details.put("lastTradeHeartbeat", status.getLastTradeHeartbeat().toString());
-            details.put("tradeHeartbeatAge", getHeartbeatAge(status.getLastTradeHeartbeat()));
-        }
-
-        // Connection health assessment
-        details.put("quoteConnectionHealthy", isQuoteConnectionHealthy(status));
-        details.put("tradeConnectionHealthy", isTradeConnectionHealthy(status));
+        // Uptime
+        details.put("uptime", status.getUptime() + " seconds");
 
         return details;
     }
@@ -114,72 +120,46 @@ public class FutuHealthIndicator implements HealthIndicator {
     /**
      * Determine status message based on connection state
      */
-    private String determineStatusMessage(FutuConnectionManager.ConnectionStatus status) {
+    private String determineStatusMessage(FutuConnection.ConnectionStatus status) {
         if (status.isConnecting()) {
             return "Connection in progress (attempt " + status.getRetryCount() + ")";
         }
 
-        if (!status.isQuoteConnected() && !status.isTradeConnected()) {
-            return "Both quote and trade connections down";
+        if (!status.isConnected()) {
+            return "FUTU connection down";
         }
 
-        if (!status.isQuoteConnected()) {
-            return "Quote connection down";
-        }
-
-        if (!status.isTradeConnected()) {
-            return "Trade connection down";
-        }
-
-        // Check heartbeat health
-        if (!isQuoteConnectionHealthy(status)) {
-            return "Quote connection heartbeat timeout";
-        }
-
-        if (!isTradeConnectionHealthy(status)) {
-            return "Trade connection heartbeat timeout";
+        if (status.getErrorMessage() != null) {
+            return "Connection error: " + status.getErrorMessage();
         }
 
         return "Connection status unknown";
     }
 
-    /**
+    // 注意：以下方法暂时注释掉，因为当前ConnectionStatus接口暂未包含详细的心跳信息
+    // 在Phase 4中根据需要可以扩展ConnectionStatus接口来支持更详细的连接状态信息
+    
+    /*
      * Check if quote connection is healthy based on heartbeat
+     * 待Phase 4中根据实际需求实现
      */
-    private boolean isQuoteConnectionHealthy(FutuConnectionManager.ConnectionStatus status) {
-        if (!status.isQuoteConnected()) {
-            return false;
-        }
-
-        if (status.getLastQuoteHeartbeat() == null) {
-            return false;
-        }
-
-        long minutesSinceHeartbeat = ChronoUnit.MINUTES.between(
-                status.getLastQuoteHeartbeat(),
-                LocalDateTime.now());
-
-        return minutesSinceHeartbeat <= HEARTBEAT_TIMEOUT_MINUTES;
+    /*
+    private boolean isQuoteConnectionHealthy(FutuConnection.ConnectionStatus status) {
+        // 暂时简化为检查基本连接状态
+        return status.isConnected();
     }
+    */
 
-    /**
-     * Check if trade connection is healthy based on heartbeat
+    /*
+     * Check if trade connection is healthy based on heartbeat  
+     * 待Phase 4中根据实际需求实现
      */
-    private boolean isTradeConnectionHealthy(FutuConnectionManager.ConnectionStatus status) {
-        if (!status.isTradeConnected()) {
-            return false;
-        }
-
-        if (status.getLastTradeHeartbeat() == null) {
-            return false;
-        }
-
-        long minutesSinceHeartbeat = ChronoUnit.MINUTES.between(
-                status.getLastTradeHeartbeat(),
-                LocalDateTime.now());
-
-        return minutesSinceHeartbeat <= HEARTBEAT_TIMEOUT_MINUTES;
+    /*
+    private boolean isTradeConnectionHealthy(FutuConnection.ConnectionStatus status) {
+        // 暂时简化为检查基本连接状态
+        return status.isConnected();
     }
+    */
 
     /**
      * Get heartbeat age in human readable format
