@@ -4,7 +4,9 @@ import com.trading.domain.entity.MarketData;
 import com.trading.domain.vo.TechnicalIndicators;
 import com.trading.infrastructure.cache.CacheService;
 import com.trading.infrastructure.futu.FutuConnection;
+import com.trading.infrastructure.futu.FutuMarketDataService;
 import com.trading.infrastructure.futu.FutuWebSocketClient;
+import com.trading.infrastructure.futu.model.FutuKLine;
 import com.trading.repository.MarketDataRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,6 +38,8 @@ public class MarketDataService {
     private FutuConnection futuConnection;
     @Autowired(required = false) 
     private FutuWebSocketClient futuWebSocketClient;
+    @Autowired(required = false)
+    private FutuMarketDataService futuMarketDataService;
     @Autowired
     private MarketDataRepository marketDataRepository;
     @Autowired
@@ -106,19 +110,51 @@ public class MarketDataService {
         try {
             log.debug("从FUTU API获取K线数据: symbol={}, timeframe={}", symbol, timeframe);
             
-            // 检查连接状态
-            if (futuConnection == null || !futuConnection.isConnected()) {
-                log.warn("FUTU未连接，使用模拟数据");
-                return generateSimulatedMarketData(symbol, timeframe, startTime, endTime, limit);
+            // 检查FUTU服务是否可用
+            if (futuMarketDataService == null) {
+                log.error("FutuMarketDataService未初始化");
+                return new ArrayList<>();
             }
             
-            // 暂时使用模拟数据，在Phase 4中实现真实的K线数据获取
-            log.info("暂时使用模拟K线数据，待Phase 4中实现真实API调用");
-            return generateSimulatedMarketData(symbol, timeframe, startTime, endTime, limit);
+            // 检查连接状态
+            if (futuConnection == null || !futuConnection.isConnected()) {
+                log.error("FUTU未连接，无法获取真实数据");
+                return new ArrayList<>();
+            }
+            
+            // 转换K线类型
+            FutuMarketDataService.KLineType klineType = convertToFutuKLineType(timeframe);
+            
+            // 调用真实的FUTU API获取K线数据
+            log.info("调用FUTU API获取真实K线数据: symbol={}, start={}, end={}", symbol, startTime.toLocalDate(), endTime.toLocalDate());
+            List<FutuKLine> futuKLines = futuMarketDataService.getHistoricalKLine(
+                symbol,
+                startTime.toLocalDate(),
+                endTime.toLocalDate(),
+                klineType
+            );
+            
+            if (futuKLines == null || futuKLines.isEmpty()) {
+                log.warn("FUTU API未返回数据: symbol={}", symbol);
+                return new ArrayList<>();
+            }
+            
+            log.info("获取到{}条K线数据，开始转换格式", futuKLines.size());
+            
+            // 转换FutuKLine为MarketData
+            List<MarketData> marketDataList = convertFutuKLinesToMarketData(futuKLines, symbol, timeframe);
+            
+            // 限制返回数量
+            if (marketDataList.size() > limit) {
+                marketDataList = marketDataList.subList(marketDataList.size() - limit, marketDataList.size());
+            }
+            
+            log.info("成功获取并转换{}条真实K线数据", marketDataList.size());
+            return marketDataList;
             
         } catch (Exception e) {
             log.error("获取K线数据异常: symbol={}", symbol, e);
-            return generateSimulatedMarketData(symbol, timeframe, startTime, endTime, limit);
+            return new ArrayList<>();
         }
     }
 
@@ -520,5 +556,69 @@ public class MarketDataService {
         
         public LocalDateTime getTimestamp() { return timestamp; }
         public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+    }
+    
+    /**
+     * 转换时间框架字符串为FUTU K线类型
+     */
+    private FutuMarketDataService.KLineType convertToFutuKLineType(String timeframe) {
+        switch (timeframe.toLowerCase()) {
+            case "1m":
+                return FutuMarketDataService.KLineType.K_1MIN;
+            case "5m":
+                return FutuMarketDataService.KLineType.K_5MIN;
+            case "15m":
+                return FutuMarketDataService.KLineType.K_15MIN;
+            case "30m":
+                return FutuMarketDataService.KLineType.K_30MIN;
+            case "60m":
+            case "1h":
+                return FutuMarketDataService.KLineType.K_60MIN;
+            case "1d":
+            case "day":
+            default:
+                return FutuMarketDataService.KLineType.K_DAY;
+        }
+    }
+    
+    /**
+     * 转换FUTU K线数据为MarketData格式
+     */
+    private List<MarketData> convertFutuKLinesToMarketData(List<FutuKLine> futuKLines, String symbol, String timeframe) {
+        List<MarketData> marketDataList = new ArrayList<>();
+        
+        for (FutuKLine kline : futuKLines) {
+            try {
+                // 创建MarketData对象
+                MarketData marketData = MarketData.builder()
+                    .symbol(symbol)
+                    .timestamp(kline.getTimestamp())
+                    .open(kline.getOpen())
+                    .high(kline.getHigh())
+                    .low(kline.getLow())
+                    .close(kline.getClose())
+                    .volume(kline.getVolume())
+                    .timeframe(timeframe)  // 使用传入的timeframe参数
+                    .createdAt(LocalDateTime.now())
+                    .updatedAt(LocalDateTime.now())
+                    .build();
+                
+                // 生成唯一ID
+                String id = symbol + "_" + marketData.getTimestamp().format(ID_FORMATTER);
+                marketData.setId(id);
+                
+                // 如果有成交额和换手率数据
+                if (kline.getTurnover() != null) {
+                    marketData.setTurnover(kline.getTurnover());
+                }
+                
+                marketDataList.add(marketData);
+                
+            } catch (Exception e) {
+                log.warn("转换K线数据失败: {}", e.getMessage());
+            }
+        }
+        
+        return marketDataList;
     }
 }

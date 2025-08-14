@@ -68,7 +68,20 @@
       "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH javap -public com.futu.openapi.pb.QotRequestHistoryKL$Response)",
       "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn compile)",
       "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn clean compile)",
-      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH javap -classpath \"/Users/weiway/ai_workspace/java/my_stock_system/outjar/FTAPI4J_9.3.5308/ftapi4j/ftapi4j.jar\" com.futu.openapi.pb.QotCommon$KLine)"
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH javap -classpath \"/Users/weiway/ai_workspace/java/my_stock_system/outjar/FTAPI4J_9.3.5308/ftapi4j/ftapi4j.jar\" com.futu.openapi.pb.QotCommon$KLine)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn test -Dtest=TechnicalAnalysisServiceTest -q)",
+      "WebSearch",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH javap -cp ~/.m2/repository/org/ta4j/ta4j-core/0.15/ta4j-core-0.15.jar org.ta4j.core.indicators.pivotpoints.PivotPointIndicator)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn clean dependency:resolve -q)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH find ~/.m2/repository/org/ta4j/ta4j-core/0.17/ -name \"*.jar\" -exec jar tf {})",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn dependency:purge-local-repository -DactTransitively=false -DreResolve=false)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH find /Users/weiway/mvn_repository/repository -name \"*ta4j*\" -type d)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH find /Users/weiway/mvn_repository/repository/org/ta4j/ta4j-core -name \"*.jar\")",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH jar tf /Users/weiway/mvn_repository/repository/org/ta4j/ta4j-core/0.17/ta4j-core-0.17.jar)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn spring-boot:run -Dspring.profiles.active=dev -Dmaven.test.skip=true -Dspring-boot.run.mainClass=com.trading.TestIndicatorValidation)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mkdir -p src/test/java/com/trading/validation)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn test -Dtest=TechnicalIndicatorValidationTest -q)",
+      "Bash(JAVA_HOME=/Users/weiway/Library/Java/JavaVirtualMachines/corretto-17.0.12/Contents/Home PATH=$JAVA_HOME/bin:$PATH mvn test-compile -q)"
     ],
     "deny": [],
     "ask": []

@@ -122,6 +122,9 @@ public class RedisConfig {
         // Register Java 8 time module for LocalDateTime serialization
         objectMapper.registerModule(new JavaTimeModule());
         
+        // 忽略未知属性，防止反序列化失败
+        objectMapper.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        
         return objectMapper;
     }
 
