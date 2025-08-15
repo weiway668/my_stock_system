@@ -25,6 +25,23 @@ import java.util.Optional;
 public interface HistoricalDataRepository extends JpaRepository<HistoricalKLineEntity, String> {
     
     // ==================== 基础查询方法 ====================
+
+    /**
+     * 根据股票代码查询所有K线数据
+     *
+     * @param symbol 股票代码
+     * @return K线数据列表
+     */
+    List<HistoricalKLineEntity> findBySymbol(String symbol);
+
+    /**
+     * 根据股票代码删除所有K线数据
+     *
+     * @param symbol 股票代码
+     */
+    @Transactional
+    @Modifying
+    void deleteBySymbol(String symbol);
     
     /**
      * 根据股票代码、K线类型和复权类型查询最新数据时间

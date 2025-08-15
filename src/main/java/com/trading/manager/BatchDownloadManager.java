@@ -1,27 +1,32 @@
 package com.trading.manager;
 
-import com.trading.common.enums.MarketType;
-import com.trading.infrastructure.futu.FutuMarketDataService.KLineType;
-import com.trading.infrastructure.futu.model.FutuKLine.RehabType;
-import com.trading.service.HistoricalDataService;
-import com.trading.service.HistoricalDataService.BatchDownloadResult;
-import com.trading.service.HistoricalDataService.DownloadResult;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Queue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.stream.Collectors;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Semaphore;
-import java.util.stream.Collectors;
+import com.trading.common.enums.MarketType;
+import com.trading.infrastructure.futu.FutuMarketDataService.KLineType;
+import com.trading.infrastructure.futu.model.FutuKLine.RehabType;
+import com.trading.service.HistoricalDataService;
+import com.trading.service.HistoricalDataService.BatchDownloadResult;
+
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 批量下载管理器
@@ -30,7 +35,6 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class BatchDownloadManager {
     
     private final HistoricalDataService historicalDataService;
