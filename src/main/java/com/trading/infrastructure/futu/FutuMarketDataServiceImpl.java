@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 
@@ -17,6 +18,7 @@ import com.futu.openapi.pb.QotCommon;
 import com.futu.openapi.pb.QotGetBasicQot;
 import com.futu.openapi.pb.QotGetOrderBook;
 import com.futu.openapi.pb.QotRequestHistoryKL;
+import com.futu.openapi.pb.QotRequestTradeDate;
 import com.futu.openapi.pb.QotSub;
 import com.trading.infrastructure.futu.model.FutuKLine;
 import com.trading.infrastructure.futu.model.FutuOrderBook;
@@ -40,6 +42,7 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
     // 缓存已订阅的股票和监听器
     private final Map<String, FutuMarketDataService.QuoteListener> quoteListeners = new ConcurrentHashMap<>();
     private final Map<String, FutuMarketDataService.OrderBookListener> orderBookListeners = new ConcurrentHashMap<>();
+    private final Map<String, Set<String>> tradingDaysCache = new ConcurrentHashMap<>();
 
     @Override
     public FutuQuote getRealtimeQuote(String symbol) {
@@ -478,6 +481,49 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
     @Override
     public boolean isServiceAvailable() {
         return webSocketClient.isConnected();
+    }
+
+    @Override
+    public Set<String> getTradingDays(com.trading.common.enums.MarketType market, LocalDate startDate, LocalDate endDate) {
+        String cacheKey = String.format("%s-%d", market.name(), startDate.getYear());
+        if (tradingDaysCache.containsKey(cacheKey)) {
+            return tradingDaysCache.get(cacheKey);
+        }
+
+        if (!webSocketClient.isConnected()) {
+            log.warn("FUTU连接未建立，无法获取交易日");
+            return new HashSet<>();
+        }
+
+        try {
+            QotRequestTradeDate.Response response = webSocketClient.getTradeDateSync(
+                    market.getFutuMarketCode(),
+                    startDate.toString(),
+                    endDate.toString()
+            );
+
+            if (response == null || response.getRetType() != 0) {
+                log.warn("获取交易日响应失败: {}", response != null ? response.getRetMsg() : "response is null");
+                return new HashSet<>();
+            }
+
+            Set<String> tradeDates = response.getS2C().getTradeDateListList().stream()
+                    .map(QotRequestTradeDate.TradeDate::getTime)
+                    .collect(Collectors.toSet());
+
+            log.info("成功获取 {} 年 {} 市场交易日 {} 天", startDate.getYear(), market.name(), tradeDates.size());
+            tradingDaysCache.put(cacheKey, tradeDates);
+
+            return tradeDates;
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("获取交易日被中断", e);
+            return new HashSet<>();
+        } catch (Exception e) {
+            log.error("获取交易日异常", e);
+            return new HashSet<>();
+        }
     }
 
     // ========== 工具方法 ==========

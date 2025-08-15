@@ -1,5 +1,7 @@
 package com.trading.service.impl;
 
+import com.trading.common.enums.MarketType;
+import com.trading.common.utils.MarketHoursUtil;
 import com.trading.domain.entity.HistoricalKLineEntity;
 import com.trading.infrastructure.futu.FutuMarketDataService.KLineType;
 import com.trading.infrastructure.futu.model.FutuKLine.RehabType;
@@ -11,6 +13,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -20,6 +24,7 @@ import java.util.stream.Collectors;
 public class DataQualityServiceImpl implements DataQualityService {
 
     private final HistoricalDataRepository historicalDataRepository;
+    private final MarketHoursUtil marketHoursUtil;
 
     @Override
     public List<DataAnomaly> detectAnomalies(String symbol, KLineType klineType) {
@@ -33,21 +38,52 @@ public class DataQualityServiceImpl implements DataQualityService {
 
     @Override
     public List<DataGap> findDataGaps(String symbol, KLineType klineType, LocalDate startDate, LocalDate endDate) {
-        log.debug("开始查找数据缺口: symbol={}, klineType={}, period={}-{}", symbol, klineType, startDate, endDate);
-        int expectedIntervalMinutes = getExpectedInterval(klineType);
+        log.debug("开始查找数据缺口 (高级模式): symbol={}, klineType={}, period={}-{}", symbol, klineType, startDate, endDate);
 
-        List<Object[]> gaps = historicalDataRepository.findDataGaps(
+        List<HistoricalKLineEntity> klines = historicalDataRepository.findBySymbolAndTimeRange(
                 symbol,
-                klineType.name(),
-                RehabType.NONE.name(), // 默认使用不复权数据进行缺口检测
+                klineType,
+                RehabType.NONE, // 使用不复权数据进行缺口检测
                 startDate.atStartOfDay(),
-                endDate.atTime(23, 59, 59),
-                expectedIntervalMinutes
+                endDate.atTime(23, 59, 59)
         );
 
-        return gaps.stream()
-                .map(this::convertToDataGap)
-                .collect(Collectors.toList());
+        if (klines == null || klines.size() < 2) {
+            return Collections.emptyList();
+        }
+
+        List<DataGap> gaps = new ArrayList<>();
+        MarketType market = MarketType.fromSymbol(symbol);
+
+        for (int i = 0; i < klines.size() - 1; i++) {
+            HistoricalKLineEntity currentKLine = klines.get(i);
+            HistoricalKLineEntity actualNextKLine = klines.get(i + 1);
+
+            LocalDateTime expectedNextTimestamp = marketHoursUtil.getNextExpectedTimestamp(
+                    currentKLine.getTimestamp(),
+                    klineType,
+                    market
+            );
+
+            // 当数据提供商使用"周期结束"作为时间戳时，跨越非交易时段（午休/隔夜）的K线缺口检测需要特别处理
+            // 此处通过判断预期时间与当前时间的间隔是否远大于单个K线周期，来识别是否发生了“跳跃”
+            long intervalMinutes = klineType.getIntervalMinutes();
+            if (intervalMinutes > 0 && java.time.Duration.between(currentKLine.getTimestamp(), expectedNextTimestamp).toMinutes() > intervalMinutes) {
+                // 发生跳跃，说明进入了新的交易时段（如下午或第二天早上）
+                // 预期时间戳需要从新时段的开始时间，再往后推一个K线周期，以匹配“周期结束”时间戳
+                expectedNextTimestamp = expectedNextTimestamp.plusMinutes(intervalMinutes);
+            }
+
+            if (actualNextKLine.getTimestamp().isAfter(expectedNextTimestamp)) {
+                gaps.add(DataGap.builder()
+                        .gapStart(expectedNextTimestamp)
+                        .gapEnd(actualNextKLine.getTimestamp())
+                        .missingIntervals(java.time.Duration.between(expectedNextTimestamp, actualNextKLine.getTimestamp()).toMinutes())
+                        .build());
+            }
+        }
+
+        return gaps;
     }
 
     @Override
@@ -124,36 +160,5 @@ public class DataQualityServiceImpl implements DataQualityService {
                 .build();
     }
 
-    private DataGap convertToDataGap(Object[] row) {
-        LocalDateTime start = ((java.sql.Timestamp) row[0]).toLocalDateTime();
-        LocalDateTime end = null;
-        if (row[1] != null) {
-            end = ((java.sql.Timestamp) row[1]).toLocalDateTime();
-        }
-
-        long interval = 0;
-        if (start != null && end != null) {
-            interval = java.time.Duration.between(start, end).toMinutes();
-        }
-
-        return DataGap.builder()
-                .gapStart(start)
-                .gapEnd(end)
-                .missingIntervals(interval)
-                .build();
-    }
-
-    private int getExpectedInterval(KLineType klineType) {
-        return switch (klineType) {
-            case K_1MIN -> 1;
-            case K_5MIN -> 5;
-            case K_15MIN -> 15;
-            case K_30MIN -> 30;
-            case K_60MIN -> 60;
-            case K_DAY -> 24 * 60;
-            case K_WEEK -> 7 * 24 * 60;
-            case K_MONTH -> 30 * 24 * 60; // 简化估算
-            default -> 0;
-        };
-    }
+    
 }

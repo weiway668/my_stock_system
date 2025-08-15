@@ -1,5 +1,17 @@
 package com.trading.service;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.trading.domain.entity.MarketData;
 import com.trading.domain.vo.TechnicalIndicators;
 import com.trading.infrastructure.cache.CacheService;
@@ -8,22 +20,8 @@ import com.trading.infrastructure.futu.FutuMarketDataService;
 import com.trading.infrastructure.futu.FutuWebSocketClient;
 import com.trading.infrastructure.futu.model.FutuKLine;
 import com.trading.repository.MarketDataRepository;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Market Data Service

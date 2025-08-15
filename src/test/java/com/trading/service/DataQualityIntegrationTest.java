@@ -99,7 +99,7 @@ public class DataQualityIntegrationTest {
         logger.info("  - 总记录数: {}", report.getConsistencyReport().getTotalRecords());
         logger.info("  - 预期记录数 (估算): {}", report.getConsistencyReport().getExpectedRecords());
         logger.info("  - 重复记录数: {}", report.getConsistencyReport().getDuplicateRecords());
-        logger.info("  - 完整度 (估算): {:.2f}%", report.getConsistencyReport().getCompletenessRate());
+        logger.info("  - 完整度 (估算): {}%", report.getConsistencyReport().getCompletenessRate());
         logger.info("异常数据点: {} 个", report.getAnomalies().size());
         report.getAnomalies().forEach(anomaly ->
                 logger.warn("  - [异常] 时间: {}, 类型: {}, 描述: {}", anomaly.getTimestamp(), anomaly.getAnomalyType(), anomaly.getDescription()));

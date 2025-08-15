@@ -94,6 +94,16 @@ public interface FutuMarketDataService {
     Set<String> getSubscribedSymbols();
 
     /**
+     * 获取指定市场在一段时间内的交易日
+     *
+     * @param market    市场类型
+     * @param startDate 开始日期
+     * @param endDate   结束日期
+     * @return 交易日集合 (格式: yyyy-MM-dd)
+     */
+    Set<String> getTradingDays(com.trading.common.enums.MarketType market, LocalDate startDate, LocalDate endDate);
+
+    /**
      * 检查服务是否可用
      * 
      * @return true=可用, false=不可用
@@ -104,23 +114,29 @@ public interface FutuMarketDataService {
      * K线类型枚举
      */
     enum KLineType {
-        K_1MIN("1分钟"),
-        K_5MIN("5分钟"),
-        K_15MIN("15分钟"),
-        K_30MIN("30分钟"),
-        K_60MIN("60分钟"),
-        K_DAY("日线"),
-        K_WEEK("周线"),
-        K_MONTH("月线");
+        K_1MIN("1分钟", 1),
+        K_5MIN("5分钟", 5),
+        K_15MIN("15分钟", 15),
+        K_30MIN("30分钟", 30),
+        K_60MIN("60分钟", 60),
+        K_DAY("日线", 24 * 60),
+        K_WEEK("周线", 7 * 24 * 60),
+        K_MONTH("月线", 30 * 24 * 60); // Approximate
 
         private final String description;
+        private final long intervalMinutes;
 
-        KLineType(String description) {
+        KLineType(String description, long intervalMinutes) {
             this.description = description;
+            this.intervalMinutes = intervalMinutes;
         }
 
         public String getDescription() {
             return description;
+        }
+
+        public long getIntervalMinutes() {
+            return intervalMinutes;
         }
     }
 

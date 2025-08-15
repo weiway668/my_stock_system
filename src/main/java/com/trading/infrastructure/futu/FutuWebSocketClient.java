@@ -30,6 +30,7 @@ import com.futu.openapi.pb.QotGetBasicQot;
 import com.futu.openapi.pb.QotGetOrderBook;
 import com.futu.openapi.pb.QotRequestHistoryKL;
 import com.futu.openapi.pb.QotSub;
+import com.futu.openapi.pb.QotRequestTradeDate;
 import com.futu.openapi.pb.QotUpdateBasicQot;
 import com.futu.openapi.pb.QotUpdateBroker;
 import com.futu.openapi.pb.QotUpdateKL;
@@ -515,6 +516,44 @@ public class FutuWebSocketClient implements FTSPI_Qot, FTSPI_Conn, FutuConnectio
         }
     }
 
+    /**
+     * 同步获取交易日
+     */
+    public QotRequestTradeDate.Response getTradeDateSync(int market, String beginTime, String endTime)
+            throws InterruptedException {
+        ReqInfo reqInfo = null;
+        Object syncEvent = new Object();
+
+        synchronized (syncEvent) {
+            synchronized (qotLock) {
+                if (qotConnStatus != ConnStatus.READY) {
+                    log.error("FUTU行情连接未就绪");
+                    return null;
+                }
+
+                QotRequestTradeDate.C2S c2s = QotRequestTradeDate.C2S.newBuilder()
+                        .setMarket(market)
+                        .setBeginTime(beginTime)
+                        .setEndTime(endTime)
+                        .build();
+                QotRequestTradeDate.Request req = QotRequestTradeDate.Request.newBuilder().setC2S(c2s).build();
+
+                int sn = qotClient.requestTradeDate(req);
+                if (sn == 0) {
+                    log.error("发送交易日请求失败");
+                    return null;
+                }
+
+                log.debug("发送交易日请求成功: seqNo={}", sn);
+                reqInfo = new ReqInfo(ProtoID.QOT_GETTRADEDATE, syncEvent);
+                qotReqInfoMap.put(sn, reqInfo);
+            }
+
+            syncEvent.wait(10000); // 10秒超时
+            return (QotRequestTradeDate.Response) reqInfo.rsp;
+        }
+    }
+
     // ========== 响应回调处理（参考官方示例） ==========
 
     @Override
@@ -535,6 +574,11 @@ public class FutuWebSocketClient implements FTSPI_Qot, FTSPI_Conn, FutuConnectio
     @Override
     public void onReply_RequestHistoryKL(FTAPI_Conn client, int nSerialNo, QotRequestHistoryKL.Response rsp) {
         handleQotOnReply(nSerialNo, ProtoID.QOT_REQUESTHISTORYKL, rsp);
+    }
+
+    @Override
+    public void onReply_RequestTradeDate(FTAPI_Conn client, int nSerialNo, QotRequestTradeDate.Response rsp) {
+        handleQotOnReply(nSerialNo, ProtoID.QOT_GETTRADEDATE, rsp);
     }
 
     /**

@@ -1,22 +1,23 @@
 package com.trading.validation;
 
-import com.trading.domain.entity.MarketData;
-import com.trading.domain.vo.TechnicalIndicators;
-import com.trading.service.MarketDataService;
-import com.trading.strategy.TechnicalAnalysisService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+
+import org.springframework.stereotype.Service;
+
+import com.trading.domain.entity.MarketData;
+import com.trading.domain.vo.TechnicalIndicators;
+import com.trading.service.MarketDataService;
+import com.trading.strategy.TechnicalAnalysisService;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 技术指标验证服务
