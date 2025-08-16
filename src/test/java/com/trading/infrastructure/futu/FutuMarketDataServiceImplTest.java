@@ -18,6 +18,8 @@ import org.springframework.test.context.TestPropertySource;
 import com.trading.infrastructure.futu.model.FutuKLine;
 import com.trading.infrastructure.futu.model.FutuOrderBook;
 import com.trading.infrastructure.futu.model.FutuQuote;
+import com.trading.domain.entity.CorporateActionEntity;
+
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -304,4 +306,38 @@ class FutuMarketDataServiceImplTest {
         assertThat(available).isFalse();
     }
 
+    // ========== 除权除息测试 ==========
+
+    @Test
+    @DisplayName("测试获取除权除息(复权)信息")
+    void testRequestRehab_Success() {
+        // Given - 测试客户端已设置为已连接状态
+
+        // When
+        List<CorporateActionEntity> actions = marketDataService.requestRehab(TEST_SYMBOL);
+
+        // Then
+        assertThat(actions).isNotNull();
+        assertThat(actions).isNotEmpty();
+
+        // 验证返回的数据中至少包含一种预期的行动类型 (依赖于测试客户端的模拟数据)
+        // 例如，腾讯历史上有多次派息和拆股
+        boolean hasDividend = actions.stream().anyMatch(a -> a.getActionType() == CorporateActionEntity.CorporateActionType.DIVIDEND);
+        boolean hasSplit = actions.stream().anyMatch(a -> a.getActionType() == CorporateActionEntity.CorporateActionType.SPLIT);
+
+        assertThat(hasDividend).as("应至少包含派息数据").isTrue();
+        assertThat(hasSplit).as("应至少包含拆股数据").isTrue();
+
+        // 验证其中一个派息数据的细节
+        actions.stream()
+            .filter(a -> a.getActionType() == CorporateActionEntity.CorporateActionType.DIVIDEND)
+            .findFirst()
+            .ifPresent(dividendAction -> {
+                assertThat(dividendAction.getStockCode()).isEqualTo(TEST_SYMBOL);
+                assertThat(dividendAction.getDividend()).isGreaterThan(0);
+                assertThat(dividendAction.getForwardAdjFactor()).isLessThan(1.0);
+            });
+        
+        log.info("成功获取并验证了 {} 条公司行动数据", actions.size());
+    }
 }

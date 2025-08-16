@@ -1,5 +1,4 @@
 package com.trading.infrastructure.futu;
-
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
@@ -7,6 +6,7 @@ import java.util.Set;
 import com.trading.infrastructure.futu.model.FutuKLine;
 import com.trading.infrastructure.futu.model.FutuOrderBook;
 import com.trading.infrastructure.futu.model.FutuQuote;
+import com.trading.domain.entity.CorporateActionEntity;
 
 /**
  * FUTU行情数据服务接口
@@ -109,6 +109,14 @@ public interface FutuMarketDataService {
      * @return true=可用, false=不可用
      */
     boolean isServiceAvailable();
+
+    /**
+     * 获取除权除息信息 (复权因子)
+     *
+     * @param symbol 股票代码
+     * @return 公司行动实体列表
+     */
+    List<CorporateActionEntity> requestRehab(String symbol);
 
     /**
      * K线类型枚举

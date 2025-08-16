@@ -23,6 +23,7 @@ import com.futu.openapi.pb.QotSub;
 import com.trading.infrastructure.futu.model.FutuKLine;
 import com.trading.infrastructure.futu.model.FutuOrderBook;
 import com.trading.infrastructure.futu.model.FutuQuote;
+import com.trading.domain.entity.CorporateActionEntity;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -66,13 +67,13 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
                         .setMarket(getMarketType(symbol))
                         .build();
 
-                QotGetBasicQot.C2S c2s = QotGetBasicQot.C2S.newBuilder()
-                        .addSecurityList(security)
-                        .build();
+                // QotGetBasicQot.C2S c2s = QotGetBasicQot.C2S.newBuilder()
+                //         .addSecurityList(security)
+                //         .build();
 
-                QotGetBasicQot.Request req = QotGetBasicQot.Request.newBuilder()
-                        .setC2S(c2s)
-                        .build();
+                // QotGetBasicQot.Request req = QotGetBasicQot.Request.newBuilder()
+                //         .setC2S(c2s)
+                //         .build();
 
                 // 发送同步请求
                 try {
@@ -526,6 +527,43 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
         }
     }
 
+    @Override
+    public List<CorporateActionEntity> requestRehab(String symbol) {
+        try {
+            log.debug("获取除权除息信息: symbol={}", symbol);
+
+            if (!webSocketClient.isConnected()) {
+                log.warn("FUTU连接未建立，无法获取除权除息信息: {}", symbol);
+                return new ArrayList<>();
+            }
+
+            QotCommon.Security security = QotCommon.Security.newBuilder()
+                    .setCode(removeHKSuffix(symbol))
+                    .setMarket(getMarketType(symbol))
+                    .build();
+
+            com.futu.openapi.pb.QotRequestRehab.Response response = webSocketClient.requestRehabSync(security);
+
+            if (response == null || response.getRetType() != 0) {
+                log.warn("获取除权除息信息响应失败: {}", response != null ? response.getRetMsg() : "response is null");
+                return new ArrayList<>();
+            }
+
+            if (response.getS2C() == null || response.getS2C().getRehabListList().isEmpty()) {
+                log.info("该股票没有除权除息信息: {}", symbol);
+                return new ArrayList<>();
+            }
+
+            return response.getS2C().getRehabListList().stream()
+                    .flatMap(rehab -> FutuDataConverter.convertToCorporateActionList(rehab, symbol).stream())
+                    .collect(Collectors.toList());
+
+        } catch (Exception e) {
+            log.error("获取除权除息信息异常: {}", symbol, e);
+            return new ArrayList<>();
+        }
+    }
+
     // ========== 工具方法 ==========
 
     /**
@@ -585,6 +623,8 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
             case K_MONTH -> FutuKLine.KLineType.K_MON;
         };
     }
+
+    
 
     /**
      * 生成模拟报价数据（开发测试用）

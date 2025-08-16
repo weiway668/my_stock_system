@@ -452,4 +452,81 @@ public class FutuDataConverter {
             .divide(previousPrice, 4, java.math.RoundingMode.HALF_UP)
             .multiply(BigDecimal.valueOf(100));
     }
+
+    /**
+     * 将FUTU的复权信息对象转换为系统内的公司行动实体列表
+     * 单个FUTU Rehab对象可能包含多种公司行动（例如同一天既派息又送股），因此返回列表
+     *
+     * @param futuRehab  FUTU API返回的原始复权信息
+     * @param stockCode 股票代码
+     * @return 公司行动实体列表
+     */
+    public static List<com.trading.domain.entity.CorporateActionEntity> convertToCorporateActionList(com.futu.openapi.pb.QotCommon.Rehab futuRehab, String stockCode) {
+        List<com.trading.domain.entity.CorporateActionEntity> actionList = new ArrayList<>();
+        long companyActFlag = futuRehab.getCompanyActFlag();
+
+        if (companyActFlag == 0) {
+            return actionList;
+        }
+
+        java.time.LocalDate exDividendDate = java.time.LocalDate.parse(futuRehab.getTime());
+
+        final long FLAG_DIVIDEND = 1L << 0;
+        final long FLAG_SPLIT = 1L << 1;
+        final long FLAG_JOIN = 1L << 2;
+        final long FLAG_BONUS = 1L << 3;
+        final long FLAG_ALLOT = 1L << 5;
+        final long FLAG_SP_DIVIDEND = 1L << 7;
+
+        if ((companyActFlag & FLAG_DIVIDEND) != 0) {
+            actionList.add(buildActionEntity(stockCode, exDividendDate, futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType.DIVIDEND));
+        }
+        if ((companyActFlag & FLAG_SP_DIVIDEND) != 0) {
+            actionList.add(buildActionEntity(stockCode, exDividendDate, futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType.DIVIDEND));
+        }
+        if ((companyActFlag & FLAG_SPLIT) != 0) {
+            actionList.add(buildActionEntity(stockCode, exDividendDate, futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType.SPLIT));
+        }
+        if ((companyActFlag & FLAG_JOIN) != 0) {
+            actionList.add(buildActionEntity(stockCode, exDividendDate, futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType.MERGE));
+        }
+        if ((companyActFlag & FLAG_BONUS) != 0) {
+            actionList.add(buildActionEntity(stockCode, exDividendDate, futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType.BONUS));
+        }
+        if ((companyActFlag & FLAG_ALLOT) != 0) {
+            actionList.add(buildActionEntity(stockCode, exDividendDate, futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType.RIGHTS_ISSUE));
+        }
+
+        return actionList;
+    }
+
+    private static com.trading.domain.entity.CorporateActionEntity buildActionEntity(String stockCode, java.time.LocalDate exDate, com.futu.openapi.pb.QotCommon.Rehab futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType type) {
+        com.trading.domain.entity.CorporateActionEntity.CorporateActionEntityBuilder builder = com.trading.domain.entity.CorporateActionEntity.builder()
+                .stockCode(stockCode)
+                .exDividendDate(exDate)
+                .actionType(type)
+                .forwardAdjFactor(futuRehab.getFwdFactorA())
+                .backwardAdjFactor(futuRehab.getBwdFactorA());
+
+        switch (type) {
+            case DIVIDEND:
+                builder.dividend(futuRehab.getDividend()).spDividend(futuRehab.getSpDividend());
+                break;
+            case SPLIT:
+                builder.splitBase((double) futuRehab.getSplitBase()).splitErt((double) futuRehab.getSplitErt());
+                break;
+            case MERGE:
+                builder.joinBase((double) futuRehab.getJoinBase()).joinErt((double) futuRehab.getJoinErt());
+                break;
+            case BONUS:
+                builder.bonusBase((double) futuRehab.getBonusBase()).bonusErt((double) futuRehab.getBonusErt());
+                break;
+            case RIGHTS_ISSUE:
+                builder.allotBase((double) futuRehab.getAllotBase()).allotErt((double) futuRehab.getAllotErt()).allotPrice(futuRehab.getAllotPrice());
+                break;
+            default:
+                break;
+        }
+        return builder.build();
+    }
 }

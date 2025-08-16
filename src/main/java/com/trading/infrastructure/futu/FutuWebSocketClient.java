@@ -29,8 +29,9 @@ import com.futu.openapi.pb.QotCommon;
 import com.futu.openapi.pb.QotGetBasicQot;
 import com.futu.openapi.pb.QotGetOrderBook;
 import com.futu.openapi.pb.QotRequestHistoryKL;
-import com.futu.openapi.pb.QotSub;
+import com.futu.openapi.pb.QotRequestRehab;
 import com.futu.openapi.pb.QotRequestTradeDate;
+import com.futu.openapi.pb.QotSub;
 import com.futu.openapi.pb.QotUpdateBasicQot;
 import com.futu.openapi.pb.QotUpdateBroker;
 import com.futu.openapi.pb.QotUpdateKL;
@@ -554,6 +555,42 @@ public class FutuWebSocketClient implements FTSPI_Qot, FTSPI_Conn, FutuConnectio
         }
     }
 
+
+    /**
+     * 同步获取复权因子
+     */
+    public QotRequestRehab.Response requestRehabSync(QotCommon.Security sec) throws InterruptedException {
+        ReqInfo reqInfo = null;
+        Object syncEvent = new Object();
+
+        synchronized (syncEvent) {
+            synchronized (qotLock) {
+                if (qotConnStatus != ConnStatus.READY) {
+                    log.error("FUTU行情连接未就绪");
+                    return null;
+                }
+
+                QotRequestRehab.C2S c2s = QotRequestRehab.C2S.newBuilder()
+                        .setSecurity(sec)
+                        .build();
+                QotRequestRehab.Request req = QotRequestRehab.Request.newBuilder().setC2S(c2s).build();
+
+                int sn = qotClient.requestRehab(req);
+                if (sn == 0) {
+                    log.error("发送获取复权因子请求失败");
+                    return null;
+                }
+
+                log.debug("发送获取复权因子请求成功: seqNo={}", sn);
+                reqInfo = new ReqInfo(ProtoID.QOT_REQUESTREHAB, syncEvent);
+                qotReqInfoMap.put(sn, reqInfo);
+            }
+
+            syncEvent.wait(60000); // 10秒超时
+            return (QotRequestRehab.Response) reqInfo.rsp;
+        }
+    }
+
     // ========== 响应回调处理（参考官方示例） ==========
 
     @Override
@@ -580,6 +617,11 @@ public class FutuWebSocketClient implements FTSPI_Qot, FTSPI_Conn, FutuConnectio
     public void onReply_RequestTradeDate(FTAPI_Conn client, int nSerialNo, QotRequestTradeDate.Response rsp) {
         handleQotOnReply(nSerialNo, ProtoID.QOT_GETTRADEDATE, rsp);
     }
+
+    public void onReply_RequestRehab(FTAPI_Conn client, int nSerialNo, QotRequestRehab.Response rsp) {
+        handleQotOnReply(nSerialNo, ProtoID.QOT_GETREHAB, rsp);
+    }
+
 
     /**
      * 获取行情请求信息
