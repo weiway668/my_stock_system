@@ -461,7 +461,7 @@ public class FutuDataConverter {
      * @param stockCode 股票代码
      * @return 公司行动实体列表
      */
-    public static List<com.trading.domain.entity.CorporateActionEntity> convertToCorporateActionList(com.futu.openapi.pb.QotCommon.Rehab futuRehab, String stockCode) {
+    public static List<com.trading.domain.entity.CorporateActionEntity> convertToCorporateActionList(com.futu.openapi.pb.QotCommon.RehabOrBuilder futuRehab, String stockCode) {
         List<com.trading.domain.entity.CorporateActionEntity> actionList = new ArrayList<>();
         long companyActFlag = futuRehab.getCompanyActFlag();
 
@@ -475,9 +475,12 @@ public class FutuDataConverter {
         final long FLAG_SPLIT = 1L << 1;
         final long FLAG_JOIN = 1L << 2;
         final long FLAG_BONUS = 1L << 3;
+        final long FLAG_TRANSFER = 1L << 4;
         final long FLAG_ALLOT = 1L << 5;
+        final long FLAG_ADD = 1L << 6;
         final long FLAG_SP_DIVIDEND = 1L << 7;
 
+        if(futuRehab.hasAddBase())
         if ((companyActFlag & FLAG_DIVIDEND) != 0) {
             actionList.add(buildActionEntity(stockCode, exDividendDate, futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType.DIVIDEND));
         }
@@ -496,11 +499,17 @@ public class FutuDataConverter {
         if ((companyActFlag & FLAG_ALLOT) != 0) {
             actionList.add(buildActionEntity(stockCode, exDividendDate, futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType.RIGHTS_ISSUE));
         }
+        if ((companyActFlag & FLAG_ADD) != 0) {
+            actionList.add(buildActionEntity(stockCode, exDividendDate, futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType.ADD_ISSUE));
+        }
+        if ((companyActFlag & FLAG_TRANSFER) != 0) {
+            actionList.add(buildActionEntity(stockCode, exDividendDate, futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType.TRANSFER));
+        }
 
         return actionList;
     }
 
-    private static com.trading.domain.entity.CorporateActionEntity buildActionEntity(String stockCode, java.time.LocalDate exDate, com.futu.openapi.pb.QotCommon.Rehab futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType type) {
+    private static com.trading.domain.entity.CorporateActionEntity buildActionEntity(String stockCode, java.time.LocalDate exDate, com.futu.openapi.pb.QotCommon.RehabOrBuilder futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType type) {
         com.trading.domain.entity.CorporateActionEntity.CorporateActionEntityBuilder builder = com.trading.domain.entity.CorporateActionEntity.builder()
                 .stockCode(stockCode)
                 .exDividendDate(exDate)
@@ -523,6 +532,12 @@ public class FutuDataConverter {
                 break;
             case RIGHTS_ISSUE:
                 builder.allotBase((double) futuRehab.getAllotBase()).allotErt((double) futuRehab.getAllotErt()).allotPrice(futuRehab.getAllotPrice());
+                break;
+            case ADD_ISSUE:
+                builder.addBase((double) futuRehab.getAddBase()).addErt((double) futuRehab.getAddErt()).addPrice(futuRehab.getAddPrice());
+                break;
+            case TRANSFER:
+                builder.transferBase((double) futuRehab.getTransferBase()).transferErt((double) futuRehab.getTransferErt());
                 break;
             default:
                 break;

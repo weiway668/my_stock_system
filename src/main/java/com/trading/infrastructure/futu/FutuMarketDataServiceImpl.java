@@ -549,12 +549,12 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
                 return new ArrayList<>();
             }
 
-            if (response.getS2C() == null || response.getS2C().getRehabListList().isEmpty()) {
+            if (response.getS2C() == null || response.getS2C().getRehabListOrBuilderList().isEmpty()) {
                 log.info("该股票没有除权除息信息: {}", symbol);
                 return new ArrayList<>();
             }
 
-            return response.getS2C().getRehabListList().stream()
+            return response.getS2C().getRehabListOrBuilderList().stream()
                     .flatMap(rehab -> FutuDataConverter.convertToCorporateActionList(rehab, symbol).stream())
                     .collect(Collectors.toList());
 

@@ -144,6 +144,14 @@ public class CorporateActionEntity implements Serializable {
         /**
          * 配股
          */
-        RIGHTS_ISSUE
+        RIGHTS_ISSUE,
+        /**
+         * 增发
+         */
+        ADD_ISSUE,
+        /**
+         * 转赠
+         */
+        TRANSFER
     }
 }

@@ -315,7 +315,9 @@ class FutuMarketDataServiceImplTest {
 
         // When
         List<CorporateActionEntity> actions = marketDataService.requestRehab(TEST_SYMBOL);
-
+        log.debug("获取到 {} 条公司行动数据", actions.size());
+        //打印所有公司行动数据
+        actions.forEach(action -> log.debug("公司行动: {}", action));
         // Then
         assertThat(actions).isNotNull();
         assertThat(actions).isNotEmpty();
