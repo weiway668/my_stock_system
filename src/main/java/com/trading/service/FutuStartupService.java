@@ -26,46 +26,31 @@ public class FutuStartupService implements ApplicationRunner {
     private final FutuWebSocketClient futuWebSocketClient;
 
     @Override
-    public void run(ApplicationArguments args) throws Exception {
+    public void run(ApplicationArguments args) {
         log.info("开始FUTU服务启动流程");
 
         try {
-            // 检查是否禁用自动连接
             if (args.containsOption("no-futu-connect") || args.containsOption("offline")) {
                 log.info("检测到离线模式或禁用FUTU连接参数，跳过FUTU连接");
                 return;
             }
 
-            // 延迟一点时间，让其他服务完全启动
-            Thread.sleep(2000);
+            log.info("尝试同步连接到FUTU OpenD服务器...");
+            boolean connected = futuWebSocketClient.connectSync();
 
-            log.info("尝试连接到FUTU OpenD服务器...");
-
-            // 异步连接，避免阻塞启动过程
-            futuWebSocketClient.connect()
-                    .thenAccept(connected -> {
-                        if (connected) {
-                            log.info("✅ FUTU连接成功！系统已准备就绪");
-
-                            // 可以在这里执行一些初始化订阅，比如订阅常用股票
-                            // initializeDefaultSubscriptions();
-
-                        } else {
-                            log.warn("❌ FUTU连接失败，系统将使用模拟数据运行");
-                            log.info("请确保FUTU OpenD已启动并运行在正确端口上");
-                            showConnectionTroubleshootingTips();
-                        }
-                    })
-                    .exceptionally(throwable -> {
-                        log.error("FUTU连接过程中出现异常", throwable);
-                        log.info("系统将继续运行，但使用模拟数据");
-                        showConnectionTroubleshootingTips();
-                        return null;
-                    });
-
+            if (connected) {
+                log.info("✅ FUTU连接成功！系统已准备就绪");
+            } else {
+                log.warn("❌ FUTU连接失败，系统可能无法获取实时数据");
+                showConnectionTroubleshootingTips();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("FUTU连接过程中被中断", e);
+            showConnectionTroubleshootingTips();
         } catch (Exception e) {
-            log.error("FUTU启动服务初始化异常", e);
-            log.info("系统将继续运行，但FUTU功能可能不可用");
+            log.error("FUTU连接过程中出现未知异常", e);
+            showConnectionTroubleshootingTips();
         }
     }
 

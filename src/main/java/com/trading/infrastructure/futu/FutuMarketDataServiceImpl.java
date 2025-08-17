@@ -564,13 +564,18 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
     // ========== 工具方法 ==========
 
     /**
-     * 移除港股后缀 (00700.HK -> 00700)
+     * 移除港股后缀 (00700.HK -> 00700,HK.00700 -> 00700)
      */
     private String removeHKSuffix(String symbol) {
         if (symbol == null) {
             return "";
         }
-        return symbol.replace(".HK", "").replace(".hk", "");
+        if(symbol.endsWith(".HK") || symbol.endsWith(".hk")) {
+            return symbol.replace(".HK", "").replace(".hk", "");
+        }else if(symbol.startsWith("HK.") || symbol.startsWith("hk.")) {
+            return symbol.replace("HK.", "").replace("hk.", "");
+        }
+        return symbol;
     }
 
     /**
