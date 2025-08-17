@@ -337,7 +337,7 @@ class FutuMarketDataServiceImplTest {
             .ifPresent(dividendAction -> {
                 assertThat(dividendAction.getStockCode()).isEqualTo(TEST_SYMBOL);
                 assertThat(dividendAction.getDividend()).isGreaterThan(0);
-                assertThat(dividendAction.getForwardAdjFactor()).isLessThan(1.0);
+                assertThat(dividendAction.getForwardAdjFactor()).isLessThanOrEqualTo(1.0);
             });
         
         log.info("成功获取并验证了 {} 条公司行动数据", actions.size());

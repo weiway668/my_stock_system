@@ -43,7 +43,7 @@ public class CorporateActionEntity implements Serializable {
     /**
      * 公司行动类型
      */
-    @Enumerated(EnumType.STRING)
+        @Enumerated(EnumType.ORDINAL)
     @Column(nullable = false)
     private CorporateActionType actionType;
 
@@ -153,5 +153,48 @@ public class CorporateActionEntity implements Serializable {
          * 转赠
          */
         TRANSFER
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("CorporateAction(stockCode=").append(stockCode)
+          .append(", exDate=").append(exDividendDate)
+          .append(", action=");
+
+        switch (actionType) {
+            case DIVIDEND:
+                sb.append("派息: 每股 ").append(dividend);
+                if (spDividend != null && spDividend > 0) {
+                    sb.append(", 特别股息: ").append(spDividend);
+                }
+                break;
+            case SPLIT:
+                sb.append("拆股: ").append(splitBase).append(" 拆为 ").append(splitErt);
+                break;
+            case MERGE:
+                sb.append("合股: ").append(joinBase).append(" 合为 ").append(joinErt);
+                break;
+            case BONUS:
+                sb.append("送股: 每 ").append(bonusBase).append(" 股送 ").append(bonusErt).append(" 股");
+                break;
+            case TRANSFER:
+                sb.append("转赠: 每 ").append(transferBase).append(" 股转赠 ").append(transferErt).append(" 股");
+                break;
+            case RIGHTS_ISSUE:
+                sb.append("配股: 每 ").append(allotBase).append(" 股配 ").append(allotErt).append(" 股，价格: ").append(allotPrice);
+                break;
+            case ADD_ISSUE:
+                sb.append("增发: 每 ").append(addBase).append(" 股增发 ").append(addErt).append(" 股，价格: ").append(addPrice);
+                break;
+            case NONE:
+                sb.append("无明确行动类型");
+                break;
+        }
+
+        sb.append(", fwdAdjFactor=").append(forwardAdjFactor)
+          .append(", bwdAdjFactor=").append(backwardAdjFactor);
+        sb.append(")");
+        return sb.toString();
     }
 }

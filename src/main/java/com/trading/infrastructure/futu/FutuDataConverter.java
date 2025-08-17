@@ -463,47 +463,37 @@ public class FutuDataConverter {
      */
     public static List<com.trading.domain.entity.CorporateActionEntity> convertToCorporateActionList(com.futu.openapi.pb.QotCommon.RehabOrBuilder futuRehab, String stockCode) {
         List<com.trading.domain.entity.CorporateActionEntity> actionList = new ArrayList<>();
-        long companyActFlag = futuRehab.getCompanyActFlag();
-
-        if (companyActFlag == 0) {
-            return actionList;
-        }
-
         java.time.LocalDate exDividendDate = java.time.LocalDate.parse(futuRehab.getTime());
 
-        final long FLAG_DIVIDEND = 1L << 0;
-        final long FLAG_SPLIT = 1L << 1;
-        final long FLAG_JOIN = 1L << 2;
-        final long FLAG_BONUS = 1L << 3;
-        final long FLAG_TRANSFER = 1L << 4;
-        final long FLAG_ALLOT = 1L << 5;
-        final long FLAG_ADD = 1L << 6;
-        final long FLAG_SP_DIVIDEND = 1L << 7;
+        // 不再依赖companyActFlag, 而是通过has...()方法动态判断
 
-        if(futuRehab.hasAddBase())
-        if ((companyActFlag & FLAG_DIVIDEND) != 0) {
+        // 检查派息
+        if (futuRehab.hasDividend() || futuRehab.hasSpDividend()) {
             actionList.add(buildActionEntity(stockCode, exDividendDate, futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType.DIVIDEND));
         }
-        if ((companyActFlag & FLAG_SP_DIVIDEND) != 0) {
-            actionList.add(buildActionEntity(stockCode, exDividendDate, futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType.DIVIDEND));
-        }
-        if ((companyActFlag & FLAG_SPLIT) != 0) {
+        // 检查拆股
+        if (futuRehab.hasSplitBase() && futuRehab.hasSplitErt()) {
             actionList.add(buildActionEntity(stockCode, exDividendDate, futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType.SPLIT));
         }
-        if ((companyActFlag & FLAG_JOIN) != 0) {
+        // 检查合股
+        if (futuRehab.hasJoinBase() && futuRehab.hasJoinErt()) {
             actionList.add(buildActionEntity(stockCode, exDividendDate, futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType.MERGE));
         }
-        if ((companyActFlag & FLAG_BONUS) != 0) {
+        // 检查送股
+        if (futuRehab.hasBonusBase() && futuRehab.hasBonusErt()) {
             actionList.add(buildActionEntity(stockCode, exDividendDate, futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType.BONUS));
         }
-        if ((companyActFlag & FLAG_ALLOT) != 0) {
+        // 检查转赠
+        if (futuRehab.hasTransferBase() && futuRehab.hasTransferErt()) {
+            actionList.add(buildActionEntity(stockCode, exDividendDate, futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType.TRANSFER));
+        }
+        // 检查配股
+        if (futuRehab.hasAllotBase() && futuRehab.hasAllotErt() && futuRehab.hasAllotPrice()) {
             actionList.add(buildActionEntity(stockCode, exDividendDate, futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType.RIGHTS_ISSUE));
         }
-        if ((companyActFlag & FLAG_ADD) != 0) {
+        // 检查增发
+        if (futuRehab.hasAddBase() && futuRehab.hasAddErt() && futuRehab.hasAddPrice()) {
             actionList.add(buildActionEntity(stockCode, exDividendDate, futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType.ADD_ISSUE));
-        }
-        if ((companyActFlag & FLAG_TRANSFER) != 0) {
-            actionList.add(buildActionEntity(stockCode, exDividendDate, futuRehab, com.trading.domain.entity.CorporateActionEntity.CorporateActionType.TRANSFER));
         }
 
         return actionList;
@@ -519,25 +509,34 @@ public class FutuDataConverter {
 
         switch (type) {
             case DIVIDEND:
-                builder.dividend(futuRehab.getDividend()).spDividend(futuRehab.getSpDividend());
+                if (futuRehab.hasDividend()) builder.dividend(futuRehab.getDividend());
+                if (futuRehab.hasSpDividend()) builder.spDividend(futuRehab.getSpDividend());
                 break;
             case SPLIT:
-                builder.splitBase((double) futuRehab.getSplitBase()).splitErt((double) futuRehab.getSplitErt());
+                if (futuRehab.hasSplitBase()) builder.splitBase((double) futuRehab.getSplitBase());
+                if (futuRehab.hasSplitErt()) builder.splitErt((double) futuRehab.getSplitErt());
                 break;
             case MERGE:
-                builder.joinBase((double) futuRehab.getJoinBase()).joinErt((double) futuRehab.getJoinErt());
+                if (futuRehab.hasJoinBase()) builder.joinBase((double) futuRehab.getJoinBase());
+                if (futuRehab.hasJoinErt()) builder.joinErt((double) futuRehab.getJoinErt());
                 break;
             case BONUS:
-                builder.bonusBase((double) futuRehab.getBonusBase()).bonusErt((double) futuRehab.getBonusErt());
-                break;
-            case RIGHTS_ISSUE:
-                builder.allotBase((double) futuRehab.getAllotBase()).allotErt((double) futuRehab.getAllotErt()).allotPrice(futuRehab.getAllotPrice());
-                break;
-            case ADD_ISSUE:
-                builder.addBase((double) futuRehab.getAddBase()).addErt((double) futuRehab.getAddErt()).addPrice(futuRehab.getAddPrice());
+                if (futuRehab.hasBonusBase()) builder.bonusBase((double) futuRehab.getBonusBase());
+                if (futuRehab.hasBonusErt()) builder.bonusErt((double) futuRehab.getBonusErt());
                 break;
             case TRANSFER:
-                builder.transferBase((double) futuRehab.getTransferBase()).transferErt((double) futuRehab.getTransferErt());
+                if (futuRehab.hasTransferBase()) builder.transferBase((double) futuRehab.getTransferBase());
+                if (futuRehab.hasTransferErt()) builder.transferErt((double) futuRehab.getTransferErt());
+                break;
+            case RIGHTS_ISSUE:
+                if (futuRehab.hasAllotBase()) builder.allotBase((double) futuRehab.getAllotBase());
+                if (futuRehab.hasAllotErt()) builder.allotErt((double) futuRehab.getAllotErt());
+                if (futuRehab.hasAllotPrice()) builder.allotPrice(futuRehab.getAllotPrice());
+                break;
+            case ADD_ISSUE:
+                if (futuRehab.hasAddBase()) builder.addBase((double) futuRehab.getAddBase());
+                if (futuRehab.hasAddErt()) builder.addErt((double) futuRehab.getAddErt());
+                if (futuRehab.hasAddPrice()) builder.addPrice(futuRehab.getAddPrice());
                 break;
             default:
                 break;
