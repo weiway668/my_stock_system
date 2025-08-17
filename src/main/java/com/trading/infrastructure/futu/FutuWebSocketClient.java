@@ -456,7 +456,7 @@ public class FutuWebSocketClient implements FTSPI_Qot, FTSPI_Conn, FutuConnectio
     /**
      * 同步获取复权因子 
     */
-    public QotRequestRehab.Response requestRehabSync(QotCommon.Security sec) {
+    public QotRequestRehab.Response getRehabSync(QotCommon.Security sec) {
         return executeSyncRequest(
                 ProtoID.QOT_REQUESTREHAB,
                 () -> QotRequestRehab.Request.newBuilder()
