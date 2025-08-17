@@ -453,7 +453,10 @@ public class FutuWebSocketClient implements FTSPI_Qot, FTSPI_Conn, FutuConnectio
                 req -> qotClient.requestTradeDate((QotRequestTradeDate.Request) req));
     }
 
-    public QotRequestRehab.Response getRehabSync(QotCommon.Security sec) {
+    /**
+     * 同步获取复权因子 
+    */
+    public QotRequestRehab.Response requestRehabSync(QotCommon.Security sec) {
         return executeSyncRequest(
                 ProtoID.QOT_REQUESTREHAB,
                 () -> QotRequestRehab.Request.newBuilder()
@@ -462,51 +465,6 @@ public class FutuWebSocketClient implements FTSPI_Qot, FTSPI_Conn, FutuConnectio
                 req -> qotClient.requestRehab((QotRequestRehab.Request) req));
     }
 
-    /**
-     * 同步获取复权因子 (修复了竞态条件和内存泄漏)
-     */
-    public QotRequestRehab.Response requestRehabSync(QotCommon.Security sec) throws InterruptedException {
-        ReqInfo reqInfo;
-        final int sn;
-
-        synchronized (qotLock) {
-            if (qotConnStatus != ConnStatus.READY) {
-                log.error("FUTU行情连接未就绪");
-                return null;
-            }
-
-            QotRequestRehab.C2S c2s = QotRequestRehab.C2S.newBuilder()
-                    .setSecurity(sec)
-                    .build();
-            QotRequestRehab.Request req = QotRequestRehab.Request.newBuilder().setC2S(c2s).build();
-
-            sn = qotClient.requestRehab(req);
-            if (sn == 0) {
-                log.error("发送获取复权因子请求失败");
-                return null;
-            }
-            reqInfo = new ReqInfo(ProtoID.QOT_REQUESTREHAB, new Object());
-            qotReqInfoMap.put(sn, reqInfo);
-        }
-
-        try {
-            synchronized (reqInfo.syncEvent) {
-                if (reqInfo.rsp == null) { // 检查是否响应已在等待前返回
-                    reqInfo.syncEvent.wait(10000); // 10秒超时
-                }
-            }
-        } catch (InterruptedException e) {
-            log.warn("getRehabSync interrupted", e);
-            Thread.currentThread().interrupt();
-        } finally {
-            // 确保从map中移除，避免内存泄漏
-            synchronized (qotLock) {
-                qotReqInfoMap.remove(sn);
-            }
-        }
-
-        return (QotRequestRehab.Response) reqInfo.rsp;
-    }
 
     // ========== 响应回调处理（参考官方示例） ==========
 
