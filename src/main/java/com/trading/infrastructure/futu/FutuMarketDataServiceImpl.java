@@ -20,10 +20,10 @@ import com.futu.openapi.pb.QotGetOrderBook;
 import com.futu.openapi.pb.QotRequestHistoryKL;
 import com.futu.openapi.pb.QotRequestTradeDate;
 import com.futu.openapi.pb.QotSub;
+import com.trading.domain.entity.CorporateActionEntity;
 import com.trading.infrastructure.futu.model.FutuKLine;
 import com.trading.infrastructure.futu.model.FutuOrderBook;
 import com.trading.infrastructure.futu.model.FutuQuote;
-import com.trading.domain.entity.CorporateActionEntity;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -50,93 +50,95 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
         try {
             log.debug("获取实时报价: {}", symbol);
 
-                // 参数校验
-                if (symbol == null || symbol.trim().isEmpty()) {
-                    log.warn("股票代码为空，无法获取实时报价");
-                    return null;
-                }
+            // 参数校验
+            if (symbol == null || symbol.trim().isEmpty()) {
+                log.warn("股票代码为空，无法获取实时报价");
+                return null;
+            }
 
-                if (!webSocketClient.isConnected()) {
-                    log.warn("FUTU连接未建立，无法获取实时报价: {}", symbol);
-                    return null;
-                }
+            if (!webSocketClient.isConnected()) {
+                log.warn("FUTU连接未建立，无法获取实时报价: {}", symbol);
+                return null;
+            }
 
-                // 构建请求 - 基于FUTU API
-                QotCommon.Security security = QotCommon.Security.newBuilder()
-                        .setCode(removeHKSuffix(symbol))
-                        .setMarket(getMarketType(symbol))
-                        .build();
+            // 构建请求 - 基于FUTU API
+            QotCommon.Security security = QotCommon.Security.newBuilder()
+                    .setCode(removeHKSuffix(symbol))
+                    .setMarket(getMarketType(symbol))
+                    .build();
 
-                // QotGetBasicQot.C2S c2s = QotGetBasicQot.C2S.newBuilder()
-                //         .addSecurityList(security)
-                //         .build();
+            // QotGetBasicQot.C2S c2s = QotGetBasicQot.C2S.newBuilder()
+            // .addSecurityList(security)
+            // .build();
 
-                // QotGetBasicQot.Request req = QotGetBasicQot.Request.newBuilder()
-                //         .setC2S(c2s)
-                //         .build();
+            // QotGetBasicQot.Request req = QotGetBasicQot.Request.newBuilder()
+            // .setC2S(c2s)
+            // .build();
 
-                // 发送同步请求
-                try {
-                    // 先订阅Basic数据（FUTU API要求）
-                    List<QotCommon.Security> secList = new ArrayList<>();
-                    secList.add(security);
-                    
-                    // 订阅Basic报价
-                    List<QotCommon.SubType> subTypeList = new ArrayList<>();
-                    subTypeList.add(QotCommon.SubType.SubType_Basic);
-                    
-                    QotSub.Response subResponse = webSocketClient.subSync(secList, subTypeList, true, true);
-                    boolean subscribed = subResponse != null && subResponse.getRetType() == 0;
-                    if (!subscribed) {
-                        log.warn("订阅Basic数据失败: {}", symbol);
-                        return generateMockQuote(symbol);
-                    }
-                    
-                    // 获取报价数据
-                    QotGetBasicQot.Response response = webSocketClient.getBasicQotSync(secList);
+            // 发送同步请求
+            try {
+                // 先订阅Basic数据（FUTU API要求）
+                List<QotCommon.Security> secList = new ArrayList<>();
+                secList.add(security);
 
-                    // 检查响应
-                    if (response == null || response.getRetType() != 0) {
-                        log.warn("获取报价响应失败: {}", response != null ? response.getRetMsg() : "response is null");
-                        return generateMockQuote(symbol);
-                    }
+                // 订阅Basic报价
+                List<QotCommon.SubType> subTypeList = new ArrayList<>();
+                subTypeList.add(QotCommon.SubType.SubType_Basic);
 
-                    // 检查是否有数据
-                    if (response.getS2C().getBasicQotListCount() == 0) {
-                        log.warn("获取报价响应为空");
-                        return generateMockQuote(symbol);
-                    }
-
-                    // 转换FUTU响应为FutuQuote对象
-                    QotCommon.BasicQot basicQot = response.getS2C().getBasicQotList(0);
-                    
-                    FutuQuote quote = FutuQuote.builder()
-                            .code(symbol)
-                            .name(basicQot.getName())
-                            .lastPrice(BigDecimal.valueOf(basicQot.getCurPrice()))
-                            .openPrice(BigDecimal.valueOf(basicQot.getOpenPrice()))
-                            .highPrice(BigDecimal.valueOf(basicQot.getHighPrice()))
-                            .lowPrice(BigDecimal.valueOf(basicQot.getLowPrice()))
-                            .preClosePrice(BigDecimal.valueOf(basicQot.getLastClosePrice()))
-                            .volume(basicQot.getVolume())
-                            .turnover(BigDecimal.valueOf(basicQot.getTurnover()))
-                            .changeValue(BigDecimal.valueOf(basicQot.getCurPrice() - basicQot.getLastClosePrice()))
-                            .changeRate(BigDecimal.valueOf((basicQot.getCurPrice() - basicQot.getLastClosePrice()) / basicQot.getLastClosePrice() * 100))
-                            .amplitude(BigDecimal.valueOf((basicQot.getHighPrice() - basicQot.getLowPrice()) / basicQot.getLastClosePrice() * 100))
-                            .timestamp(LocalDateTime.now())
-                            .status(FutuQuote.DataStatus.NORMAL)
-                            .build();
-                    
-                    log.info("成功获取实时报价: {} - 当前价: {}, 涨跌幅: {}%", 
-                            symbol, quote.getLastPrice(), quote.getChangeRate());
-                    
-                    return quote;
-
-                } catch (Exception e) {
-                    log.warn("获取真实报价失败，返回模拟数据: symbol={}, error={}", symbol, e.getMessage());
-                    // 降级到模拟数据
+                QotSub.Response subResponse = webSocketClient.subSync(secList, subTypeList, true, true);
+                boolean subscribed = subResponse != null && subResponse.getRetType() == 0;
+                if (!subscribed) {
+                    log.warn("订阅Basic数据失败: {}", symbol);
                     return generateMockQuote(symbol);
                 }
+
+                // 获取报价数据
+                QotGetBasicQot.Response response = webSocketClient.getBasicQotSync(secList);
+
+                // 检查响应
+                if (response == null || response.getRetType() != 0) {
+                    log.warn("获取报价响应失败: {}", response != null ? response.getRetMsg() : "response is null");
+                    return generateMockQuote(symbol);
+                }
+
+                // 检查是否有数据
+                if (response.getS2C().getBasicQotListCount() == 0) {
+                    log.warn("获取报价响应为空");
+                    return generateMockQuote(symbol);
+                }
+
+                // 转换FUTU响应为FutuQuote对象
+                QotCommon.BasicQot basicQot = response.getS2C().getBasicQotList(0);
+
+                FutuQuote quote = FutuQuote.builder()
+                        .code(symbol)
+                        .name(basicQot.getName())
+                        .lastPrice(BigDecimal.valueOf(basicQot.getCurPrice()))
+                        .openPrice(BigDecimal.valueOf(basicQot.getOpenPrice()))
+                        .highPrice(BigDecimal.valueOf(basicQot.getHighPrice()))
+                        .lowPrice(BigDecimal.valueOf(basicQot.getLowPrice()))
+                        .preClosePrice(BigDecimal.valueOf(basicQot.getLastClosePrice()))
+                        .volume(basicQot.getVolume())
+                        .turnover(BigDecimal.valueOf(basicQot.getTurnover()))
+                        .changeValue(BigDecimal.valueOf(basicQot.getCurPrice() - basicQot.getLastClosePrice()))
+                        .changeRate(BigDecimal.valueOf((basicQot.getCurPrice() - basicQot.getLastClosePrice())
+                                / basicQot.getLastClosePrice() * 100))
+                        .amplitude(BigDecimal.valueOf((basicQot.getHighPrice() - basicQot.getLowPrice())
+                                / basicQot.getLastClosePrice() * 100))
+                        .timestamp(LocalDateTime.now())
+                        .status(FutuQuote.DataStatus.NORMAL)
+                        .build();
+
+                log.info("成功获取实时报价: {} - 当前价: {}, 涨跌幅: {}%",
+                        symbol, quote.getLastPrice(), quote.getChangeRate());
+
+                return quote;
+
+            } catch (Exception e) {
+                log.warn("获取真实报价失败，返回模拟数据: symbol={}, error={}", symbol, e.getMessage());
+                // 降级到模拟数据
+                return generateMockQuote(symbol);
+            }
 
         } catch (Exception e) {
             log.error("获取实时报价异常: {}", symbol, e);
@@ -198,7 +200,7 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
             boolean hasMore = true;
             int pageCount = 0;
             final int MAX_PAGES = 10; // 最多请求10页，避免无限循环
-            
+
             while (hasMore && pageCount < MAX_PAGES) {
                 try {
                     // 使用分页参数请求K线数据
@@ -222,17 +224,17 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
                     // 检查是否有K线数据
                     if (response.getS2C() != null && response.getS2C().getKlListCount() > 0) {
                         log.info("第{}页: 收到{}条K线数据", pageCount + 1, response.getS2C().getKlListCount());
-                        
+
                         // 转换并添加K线数据
                         List<FutuKLine> pageKlines = convertKLineData(response.getS2C().getKlListList(), symbol, ktype);
                         allKlines.addAll(pageKlines);
-                        
+
                         // 检查是否有下一页
                         if (response.getS2C().hasNextReqKey() && response.getS2C().getNextReqKey().size() > 0) {
                             nextReqKey = response.getS2C().getNextReqKey().toByteArray();
                             hasMore = true;
                             pageCount++;
-                            
+
                             // 添加延迟，避免请求过快
                             Thread.sleep(100);
                         } else {
@@ -243,7 +245,7 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
                         log.debug("K线响应中没有数据");
                         hasMore = false;
                     }
-                    
+
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     log.warn("获取K线数据被中断");
@@ -253,7 +255,7 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
                     break;
                 }
             }
-            
+
             log.info("总共获取{}条K线数据: {}", allKlines.size(), symbol);
             return allKlines;
 
@@ -262,26 +264,26 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
             return new ArrayList<>();
         }
     }
-    
+
     /**
      * 转换K线数据列表
      */
-    private List<FutuKLine> convertKLineData(List<QotCommon.KLine> klList, String symbol, FutuMarketDataService.KLineType ktype) {
+    private List<FutuKLine> convertKLineData(List<QotCommon.KLine> klList, String symbol,
+            FutuMarketDataService.KLineType ktype) {
         List<FutuKLine> klines = new ArrayList<>();
-        
+
         for (QotCommon.KLine kl : klList) {
             try {
                 // 解析时间戳（格式：yyyy-MM-dd HH:mm:ss）
                 LocalDateTime timestamp = LocalDateTime.parse(
-                        kl.getTime().replace(" ", "T")
-                );
-                
+                        kl.getTime().replace(" ", "T"));
+
                 // 计算涨跌额和涨跌幅
                 double closePrice = kl.getClosePrice();
                 double preClose = kl.getLastClosePrice();
                 double changeValue = closePrice - preClose;
                 double changeRate = preClose != 0 ? (changeValue / preClose * 100) : 0;
-                
+
                 FutuKLine futuKLine = FutuKLine.builder()
                         .code(symbol)
                         .kLineType(convertToKLineType(ktype))
@@ -298,14 +300,14 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
                         .preClose(BigDecimal.valueOf(preClose))
                         .rehabType(FutuKLine.RehabType.NONE)
                         .build();
-                
+
                 klines.add(futuKLine);
-                
+
             } catch (Exception e) {
                 log.warn("转换K线数据失败，跳过该条记录: {}", e.getMessage());
             }
         }
-        
+
         return klines;
     }
 
@@ -485,7 +487,8 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
     }
 
     @Override
-    public Set<String> getTradingDays(com.trading.common.enums.MarketType market, LocalDate startDate, LocalDate endDate) {
+    public Set<String> getTradingDays(com.trading.common.enums.MarketType market, LocalDate startDate,
+            LocalDate endDate) {
         String cacheKey = String.format("%s-%d", market.name(), startDate.getYear());
         if (tradingDaysCache.containsKey(cacheKey)) {
             return tradingDaysCache.get(cacheKey);
@@ -500,8 +503,7 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
             QotRequestTradeDate.Response response = webSocketClient.getTradeDateSync(
                     market.getFutuMarketCode(),
                     startDate.toString(),
-                    endDate.toString()
-            );
+                    endDate.toString());
 
             if (response == null || response.getRetType() != 0) {
                 log.warn("获取交易日响应失败: {}", response != null ? response.getRetMsg() : "response is null");
@@ -516,11 +518,6 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
             tradingDaysCache.put(cacheKey, tradeDates);
 
             return tradeDates;
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("获取交易日被中断", e);
-            return new HashSet<>();
         } catch (Exception e) {
             log.error("获取交易日异常", e);
             return new HashSet<>();
@@ -623,8 +620,6 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
             case K_MONTH -> FutuKLine.KLineType.K_MON;
         };
     }
-
-    
 
     /**
      * 生成模拟报价数据（开发测试用）

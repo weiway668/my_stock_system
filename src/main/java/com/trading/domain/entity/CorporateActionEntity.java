@@ -43,7 +43,7 @@ public class CorporateActionEntity implements Serializable {
     /**
      * 公司行动类型
      */
-        @Enumerated(EnumType.ORDINAL)
+        @Convert(converter = CorporateActionTypeConverter.class)
     @Column(nullable = false)
     private CorporateActionType actionType;
 

@@ -331,228 +331,135 @@ public class FutuWebSocketClient implements FTSPI_Qot, FTSPI_Conn, FutuConnectio
         }
     }
 
-    // ========== 同步请求方法（参考官方示例） ==========
+    // ========== 同步请求方法（优化后） ==========
 
     /**
-     * 同步获取基础报价（参考官方示例）
+     * 通用的同步请求执行器，修复了竞态条件和内存泄漏问题
+     * 
+     * @param protoID        协议ID
+     * @param requestBuilder 请求构建逻辑
+     * @param requestSender  请求发送逻辑
+     * @return 响应对象
+     * @param <T> 响应对象的类型
      */
-    public QotGetBasicQot.Response getBasicQotSync(List<QotCommon.Security> secList)
-            throws InterruptedException {
-        ReqInfo reqInfo = null;
-        Object syncEvent = new Object();
+    private <T extends GeneratedMessageV3> T executeSyncRequest(
+            int protoID,
+            java.util.function.Supplier<GeneratedMessageV3> requestBuilder,
+            java.util.function.Function<GeneratedMessageV3, Integer> requestSender) {
 
-        synchronized (syncEvent) {
-            synchronized (qotLock) {
-                if (qotConnStatus != ConnStatus.READY) {
-                    log.error("FUTU行情连接未就绪");
-                    return null;
-                }
+        ReqInfo reqInfo;
+        final int sn;
 
-                QotGetBasicQot.C2S c2s = QotGetBasicQot.C2S.newBuilder()
-                        .addAllSecurityList(secList)
-                        .build();
-                QotGetBasicQot.Request req = QotGetBasicQot.Request.newBuilder()
-                        .setC2S(c2s)
-                        .build();
-
-                int sn = qotClient.getBasicQot(req);
-                if (sn == 0) {
-                    log.error("发送基础报价请求失败");
-                    return null;
-                }
-
-                log.debug("发送基础报价请求成功: seqNo={}", sn);
-                reqInfo = new ReqInfo(ProtoID.QOT_GETBASICQOT, syncEvent);
-                qotReqInfoMap.put(sn, reqInfo);
+        synchronized (qotLock) {
+            if (qotConnStatus != ConnStatus.READY) {
+                log.error("FUTU行情连接未就绪, protoID={}", protoID);
+                return null;
             }
 
-            // 等待响应
-            syncEvent.wait(10000); // 10秒超时
-            return (QotGetBasicQot.Response) reqInfo.rsp;
+            GeneratedMessageV3 req = requestBuilder.get();
+            sn = requestSender.apply(req);
+
+            if (sn == 0) {
+                log.error("发送同步请求失败, protoID={}", protoID);
+                return null;
+            }
+            reqInfo = new ReqInfo(protoID, new Object());
+            qotReqInfoMap.put(sn, reqInfo);
         }
+
+        try {
+            synchronized (reqInfo.syncEvent) {
+                if (reqInfo.rsp == null) { // 核心：检查响应是否已在等待前返回
+                    reqInfo.syncEvent.wait(10000); // 10秒超时
+                }
+            }
+        } catch (InterruptedException e) {
+            log.warn("同步请求被中断, protoID={}", protoID, e);
+            Thread.currentThread().interrupt();
+        } finally {
+            // 核心：确保从map中移除，避免内存泄漏
+            synchronized (qotLock) {
+                qotReqInfoMap.remove(sn);
+            }
+        }
+
+        return (T) reqInfo.rsp;
     }
 
-    /**
-     * 同步订阅（参考官方示例）
-     */
-    public QotSub.Response subSync(List<QotCommon.Security> secList,
-            List<QotCommon.SubType> subTypeList,
-            boolean isSub,
-            boolean isRegPush) throws InterruptedException {
-        ReqInfo reqInfo = null;
-        Object syncEvent = new Object();
-
-        synchronized (syncEvent) {
-            synchronized (qotLock) {
-                if (qotConnStatus != ConnStatus.READY) {
-                    log.error("FUTU行情连接未就绪");
-                    return null;
-                }
-
-                QotSub.C2S c2s = QotSub.C2S.newBuilder()
-                        .addAllSecurityList(secList)
-                        .addAllSubTypeList(subTypeList.stream()
-                                .mapToInt(subType -> subType.getNumber())
-                                .boxed()
-                                .collect(Collectors.toList()))
-                        .setIsSubOrUnSub(isSub)
-                        .setIsRegOrUnRegPush(isRegPush)
-                        .build();
-                QotSub.Request req = QotSub.Request.newBuilder().setC2S(c2s).build();
-
-                int sn = qotClient.sub(req);
-                if (sn == 0) {
-                    log.error("发送订阅请求失败");
-                    return null;
-                }
-
-                log.debug("发送订阅请求成功: seqNo={}", sn);
-                reqInfo = new ReqInfo(ProtoID.QOT_SUB, syncEvent);
-                qotReqInfoMap.put(sn, reqInfo);
-            }
-
-            syncEvent.wait(10000); // 10秒超时
-            return (QotSub.Response) reqInfo.rsp;
-        }
+    public QotGetBasicQot.Response getBasicQotSync(List<QotCommon.Security> secList) {
+        return executeSyncRequest(
+                ProtoID.QOT_GETBASICQOT,
+                () -> QotGetBasicQot.Request.newBuilder()
+                        .setC2S(QotGetBasicQot.C2S.newBuilder().addAllSecurityList(secList))
+                        .build(),
+                req -> qotClient.getBasicQot((QotGetBasicQot.Request) req));
     }
 
-    /**
-     * 同步获取订单簿（参考官方示例）
-     */
-    public QotGetOrderBook.Response getOrderBookSync(QotCommon.Security sec, int num)
-            throws InterruptedException {
-        ReqInfo reqInfo = null;
-        Object syncEvent = new Object();
-
-        synchronized (syncEvent) {
-            synchronized (qotLock) {
-                if (qotConnStatus != ConnStatus.READY) {
-                    log.error("FUTU行情连接未就绪");
-                    return null;
-                }
-
-                QotGetOrderBook.C2S c2s = QotGetOrderBook.C2S.newBuilder()
-                        .setSecurity(sec)
-                        .setNum(num)
-                        .build();
-                QotGetOrderBook.Request req = QotGetOrderBook.Request.newBuilder()
-                        .setC2S(c2s)
-                        .build();
-
-                int sn = qotClient.getOrderBook(req);
-                if (sn == 0) {
-                    log.error("发送订单簿请求失败");
-                    return null;
-                }
-
-                log.debug("发送订单簿请求成功: seqNo={}", sn);
-                reqInfo = new ReqInfo(ProtoID.QOT_GETORDERBOOK, syncEvent);
-                qotReqInfoMap.put(sn, reqInfo);
-            }
-
-            syncEvent.wait(10000); // 10秒超时
-            return (QotGetOrderBook.Response) reqInfo.rsp;
-        }
+    public QotSub.Response subSync(List<QotCommon.Security> secList, List<QotCommon.SubType> subTypeList, boolean isSub,
+            boolean isRegPush) {
+        return executeSyncRequest(
+                ProtoID.QOT_SUB,
+                () -> QotSub.Request.newBuilder()
+                        .setC2S(QotSub.C2S.newBuilder()
+                                .addAllSecurityList(secList)
+                                .addAllSubTypeList(subTypeList.stream().mapToInt(QotCommon.SubType::getNumber).boxed()
+                                        .collect(Collectors.toList()))
+                                .setIsSubOrUnSub(isSub)
+                                .setIsRegOrUnRegPush(isRegPush))
+                        .build(),
+                req -> qotClient.sub((QotSub.Request) req));
     }
 
-    /**
-     * 同步请求历史K线（参考官方示例）
-     */
-    public QotRequestHistoryKL.Response requestHistoryKLSync(
-            QotCommon.Security sec,
-            QotCommon.KLType klType,
-            QotCommon.RehabType rehabType,
-            String beginTime,
-            String endTime,
-            Integer count,
-            Long klFields,
-            byte[] nextReqKey,
-            boolean extendedTime) throws InterruptedException {
-
-        ReqInfo reqInfo = null;
-        Object syncEvent = new Object();
-
-        synchronized (syncEvent) {
-            synchronized (qotLock) {
-                if (qotConnStatus != ConnStatus.READY) {
-                    log.error("FUTU行情连接未就绪");
-                    return null;
-                }
-
-                QotRequestHistoryKL.C2S.Builder c2s = QotRequestHistoryKL.C2S.newBuilder()
-                        .setSecurity(sec)
-                        .setKlType(klType.getNumber())
-                        .setRehabType(rehabType.getNumber())
-                        .setBeginTime(beginTime)
-                        .setEndTime(endTime)
-                        .setExtendedTime(extendedTime);
-
-                if (count != null) {
-                    c2s.setMaxAckKLNum(count);
-                }
-                if (klFields != null) {
-                    c2s.setNeedKLFieldsFlag(klFields);
-                }
-                if (nextReqKey != null && nextReqKey.length > 0) {
-                    c2s.setNextReqKey(com.google.protobuf.ByteString.copyFrom(nextReqKey));
-                }
-
-                QotRequestHistoryKL.Request req = QotRequestHistoryKL.Request.newBuilder()
-                        .setC2S(c2s)
-                        .build();
-
-                int sn = qotClient.requestHistoryKL(req);
-                if (sn == 0) {
-                    log.error("发送K线请求失败");
-                    return null;
-                }
-
-                log.debug("发送K线请求成功: seqNo={}", sn);
-                reqInfo = new ReqInfo(ProtoID.QOT_REQUESTHISTORYKL, syncEvent);
-                qotReqInfoMap.put(sn, reqInfo);
-            }
-
-            syncEvent.wait(10000); // 10秒超时
-            return (QotRequestHistoryKL.Response) reqInfo.rsp;
-        }
+    public QotGetOrderBook.Response getOrderBookSync(QotCommon.Security sec, int num) {
+        return executeSyncRequest(
+                ProtoID.QOT_GETORDERBOOK,
+                () -> QotGetOrderBook.Request.newBuilder()
+                        .setC2S(QotGetOrderBook.C2S.newBuilder().setSecurity(sec).setNum(num))
+                        .build(),
+                req -> qotClient.getOrderBook((QotGetOrderBook.Request) req));
     }
 
-    /**
-     * 同步获取交易日
-     */
-    public QotRequestTradeDate.Response getTradeDateSync(int market, String beginTime, String endTime)
-            throws InterruptedException {
-        ReqInfo reqInfo = null;
-        Object syncEvent = new Object();
+    public QotRequestHistoryKL.Response requestHistoryKLSync(QotCommon.Security sec, QotCommon.KLType klType,
+            QotCommon.RehabType rehabType, String beginTime, String endTime, Integer count, Long klFields,
+            byte[] nextReqKey, boolean extendedTime) {
+        return executeSyncRequest(
+                ProtoID.QOT_REQUESTHISTORYKL,
+                () -> {
+                    QotRequestHistoryKL.C2S.Builder c2s = QotRequestHistoryKL.C2S.newBuilder()
+                            .setSecurity(sec)
+                            .setKlType(klType.getNumber())
+                            .setRehabType(rehabType.getNumber())
+                            .setBeginTime(beginTime)
+                            .setEndTime(endTime)
+                            .setExtendedTime(extendedTime);
+                    if (count != null)
+                        c2s.setMaxAckKLNum(count);
+                    if (klFields != null)
+                        c2s.setNeedKLFieldsFlag(klFields);
+                    if (nextReqKey != null && nextReqKey.length > 0)
+                        c2s.setNextReqKey(com.google.protobuf.ByteString.copyFrom(nextReqKey));
+                    return QotRequestHistoryKL.Request.newBuilder().setC2S(c2s).build();
+                },
+                req -> qotClient.requestHistoryKL((QotRequestHistoryKL.Request) req));
+    }
 
-        synchronized (syncEvent) {
-            synchronized (qotLock) {
-                if (qotConnStatus != ConnStatus.READY) {
-                    log.error("FUTU行情连接未就绪");
-                    return null;
-                }
+    public QotRequestTradeDate.Response getTradeDateSync(int market, String beginTime, String endTime) {
+        return executeSyncRequest(
+                ProtoID.QOT_GETTRADEDATE,
+                () -> QotRequestTradeDate.Request.newBuilder()
+                        .setC2S(QotRequestTradeDate.C2S.newBuilder().setMarket(market).setBeginTime(beginTime)
+                                .setEndTime(endTime))
+                        .build(),
+                req -> qotClient.requestTradeDate((QotRequestTradeDate.Request) req));
+    }
 
-                QotRequestTradeDate.C2S c2s = QotRequestTradeDate.C2S.newBuilder()
-                        .setMarket(market)
-                        .setBeginTime(beginTime)
-                        .setEndTime(endTime)
-                        .build();
-                QotRequestTradeDate.Request req = QotRequestTradeDate.Request.newBuilder().setC2S(c2s).build();
-
-                int sn = qotClient.requestTradeDate(req);
-                if (sn == 0) {
-                    log.error("发送交易日请求失败");
-                    return null;
-                }
-
-                log.debug("发送交易日请求成功: seqNo={}", sn);
-                reqInfo = new ReqInfo(ProtoID.QOT_GETTRADEDATE, syncEvent);
-                qotReqInfoMap.put(sn, reqInfo);
-            }
-
-            syncEvent.wait(10000); // 10秒超时
-            return (QotRequestTradeDate.Response) reqInfo.rsp;
-        }
+    public QotRequestRehab.Response getRehabSync(QotCommon.Security sec) {
+        return executeSyncRequest(
+                ProtoID.QOT_REQUESTREHAB,
+                () -> QotRequestRehab.Request.newBuilder()
+                        .setC2S(QotRequestRehab.C2S.newBuilder().setSecurity(sec))
+                        .build(),
+                req -> qotClient.requestRehab((QotRequestRehab.Request) req));
     }
 
     /**
@@ -631,7 +538,6 @@ public class FutuWebSocketClient implements FTSPI_Qot, FTSPI_Conn, FutuConnectio
     public void onReply_RequestRehab(FTAPI_Conn client, int nSerialNo, QotRequestRehab.Response rsp) {
         handleQotOnReply(nSerialNo, ProtoID.QOT_REQUESTREHAB, rsp);
     }
-
 
     /**
      * 获取行情请求信息
@@ -948,13 +854,7 @@ public class FutuWebSocketClient implements FTSPI_Qot, FTSPI_Conn, FutuConnectio
      */
     public CompletableFuture<QotGetBasicQot.Response> getBasicQotAsync(List<QotCommon.Security> secList) {
         return CompletableFuture.supplyAsync(() -> {
-            try {
-                return getBasicQotSync(secList);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                log.error("获取基础报价被中断", e);
-                return null;
-            }
+            return getBasicQotSync(secList);
         });
     }
 
@@ -966,13 +866,7 @@ public class FutuWebSocketClient implements FTSPI_Qot, FTSPI_Conn, FutuConnectio
             boolean isSub,
             boolean isRegPush) {
         return CompletableFuture.supplyAsync(() -> {
-            try {
-                return subSync(secList, subTypeList, isSub, isRegPush);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                log.error("订阅被中断", e);
-                return null;
-            }
+            return subSync(secList, subTypeList, isSub, isRegPush);
         });
     }
 
@@ -981,13 +875,7 @@ public class FutuWebSocketClient implements FTSPI_Qot, FTSPI_Conn, FutuConnectio
      */
     public CompletableFuture<QotGetOrderBook.Response> getOrderBookAsync(QotCommon.Security sec, int num) {
         return CompletableFuture.supplyAsync(() -> {
-            try {
-                return getOrderBookSync(sec, num);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                log.error("获取订单簿被中断", e);
-                return null;
-            }
+            return getOrderBookSync(sec, num);
         });
     }
 
@@ -1005,14 +893,8 @@ public class FutuWebSocketClient implements FTSPI_Qot, FTSPI_Conn, FutuConnectio
             byte[] nextReqKey,
             boolean extendedTime) {
         return CompletableFuture.supplyAsync(() -> {
-            try {
-                return requestHistoryKLSync(sec, klType, rehabType, beginTime, endTime,
-                        count, klFields, nextReqKey, extendedTime);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                log.error("请求历史K线被中断", e);
-                return null;
-            }
+            return requestHistoryKLSync(sec, klType, rehabType, beginTime, endTime,
+                    count, klFields, nextReqKey, extendedTime);
         });
     }
 
@@ -1064,7 +946,8 @@ public class FutuWebSocketClient implements FTSPI_Qot, FTSPI_Conn, FutuConnectio
     /**
      * 订阅订单簿（兼容旧接口）
      */
-    public CompletableFuture<Boolean> subscribeOrderBook(String symbol, FutuMarketDataService.OrderBookListener listener) {
+    public CompletableFuture<Boolean> subscribeOrderBook(String symbol,
+            FutuMarketDataService.OrderBookListener listener) {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 // 保存监听器
