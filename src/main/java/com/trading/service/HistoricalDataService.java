@@ -159,6 +159,24 @@ public interface HistoricalDataService {
      * @return 是否成功取消
      */
     boolean cancelDownloadTask(String taskId);
+
+    /**
+     * 从数据库获取历史K线数据，并根据需要应用复权
+     *
+     * @param symbol 股票代码
+     * @param startDate 开始日期
+     * @param endDate 结束日期
+     * @param kLineType K线类型
+     * @param rehabType 复权类型 (NONE, FORWARD, BACKWARD)
+     * @return K线数据列表
+     */
+    List<com.trading.domain.entity.HistoricalKLineEntity> getHistoricalKLine(
+            String symbol,
+            LocalDate startDate,
+            LocalDate endDate,
+            KLineType kLineType,
+            RehabType rehabType
+    );
     
     // ==================== 数据结构定义 ====================
     

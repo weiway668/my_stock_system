@@ -27,7 +27,7 @@ import java.time.LocalDateTime;
         @Index(name = "idx_data_status", columnList = "data_status")
 })
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 @EntityListeners(AuditingEntityListener.class)

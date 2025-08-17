@@ -1,6 +1,7 @@
 package com.trading.service.impl;
 
 import com.trading.common.enums.MarketType;
+import com.trading.domain.entity.CorporateActionEntity;
 import com.trading.domain.entity.HistoricalKLineEntity;
 import com.trading.domain.entity.HistoricalKLineEntity.DataSource;
 import com.trading.domain.entity.HistoricalKLineEntity.DataStatus;
@@ -8,6 +9,7 @@ import com.trading.infrastructure.futu.FutuMarketDataService;
 import com.trading.infrastructure.futu.FutuMarketDataService.KLineType;
 import com.trading.infrastructure.futu.model.FutuKLine;
 import com.trading.infrastructure.futu.model.FutuKLine.RehabType;
+import com.trading.repository.CorporateActionRepository;
 import com.trading.repository.HistoricalDataRepository;
 import com.trading.service.HistoricalDataService;
 
@@ -18,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -38,6 +41,7 @@ import java.util.stream.Collectors;
 public class HistoricalDataServiceImpl implements HistoricalDataService {
     
     private final HistoricalDataRepository historicalDataRepository;
+    private final CorporateActionRepository corporateActionRepository;
     private final FutuMarketDataService futuMarketDataService;
     
     // 下载任务管理
@@ -59,6 +63,70 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
     
     @Value("${historical-data.download.retry-delay:5000}")
     private long retryDelay;
+
+    @Override
+    public List<HistoricalKLineEntity> getHistoricalKLine(
+            String symbol,
+            LocalDate startDate,
+            LocalDate endDate,
+            KLineType kLineType,
+            RehabType rehabType) {
+        
+        log.debug("获取K线数据: symbol={}, period={}-{}, kLineType={}, rehabType={}", 
+                symbol, startDate, endDate, kLineType, rehabType);
+
+        List<HistoricalKLineEntity> rawKLines = historicalDataRepository.findBySymbolAndTimeRange(
+                symbol, kLineType, RehabType.NONE, startDate.atStartOfDay(), endDate.atTime(23, 59, 59));
+
+        if (rehabType == RehabType.NONE || rawKLines.isEmpty()) {
+            return rawKLines;
+        }
+
+        List<CorporateActionEntity> corporateActions = corporateActionRepository.findByStockCodeOrderByExDividendDateDesc(symbol);
+        if (corporateActions.isEmpty()) {
+            log.warn("未找到股票 {} 的复权因子信息，将返回原始数据", symbol);
+            return rawKLines;
+        }
+
+        if (rehabType == RehabType.BACKWARD) {
+            return applyBackwardAdjustment(rawKLines, corporateActions);
+        } else {
+            // 前复权或其他类型暂未实现
+            log.warn("暂不支持的复权类型: {}, 将返回原始数据", rehabType);
+            return rawKLines;
+        }
+    }
+
+    private List<HistoricalKLineEntity> applyBackwardAdjustment(List<HistoricalKLineEntity> rawKLines, List<CorporateActionEntity> corporateActions) {
+        log.debug("开始应用后复权调整，原始K线数量: {}, 复权因子数量: {}", rawKLines.size(), corporateActions.size());
+        List<HistoricalKLineEntity> adjustedKLines = new ArrayList<>();
+
+        for (HistoricalKLineEntity kLine : rawKLines) {
+            BigDecimal cumulativeFactor = BigDecimal.ONE;
+            for (CorporateActionEntity action : corporateActions) {
+                // 后复权：如果K线日期在复权日之前，则需要应用该因子
+                if (kLine.getTimestamp().toLocalDate().isBefore(action.getExDividendDate())) {
+                    cumulativeFactor = cumulativeFactor.multiply(BigDecimal.valueOf(action.getBackwardAdjFactor()));
+                }
+            }
+
+            if (cumulativeFactor.compareTo(BigDecimal.ONE) != 0) {
+                HistoricalKLineEntity adjustedKLine = kLine.toBuilder()
+                        .open(kLine.getOpen().multiply(cumulativeFactor).setScale(3, RoundingMode.HALF_UP))
+                        .high(kLine.getHigh().multiply(cumulativeFactor).setScale(3, RoundingMode.HALF_UP))
+                        .low(kLine.getLow().multiply(cumulativeFactor).setScale(3, RoundingMode.HALF_UP))
+                        .close(kLine.getClose().multiply(cumulativeFactor).setScale(3, RoundingMode.HALF_UP))
+                        .rehabType(RehabType.BACKWARD)
+                        .build();
+                adjustedKLines.add(adjustedKLine);
+            } else {
+                // 如果没有应用任何因子，则添加原始K线
+                adjustedKLines.add(kLine);
+            }
+        }
+        log.debug("后复权调整完成，生成K线数量: {}", adjustedKLines.size());
+        return adjustedKLines;
+    }
     
     @Override
     public CompletableFuture<BatchDownloadResult> downloadBatchHistoricalData(
