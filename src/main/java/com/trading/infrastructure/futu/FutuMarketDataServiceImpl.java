@@ -525,7 +525,7 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
     }
 
     @Override
-    public List<CorporateActionEntity> requestRehab(String symbol) {
+    public List<CorporateActionEntity> getRehab(String symbol) {
         try {
             log.debug("获取除权除息信息: symbol={}", symbol);
 
@@ -539,7 +539,7 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
                     .setMarket(getMarketType(symbol))
                     .build();
 
-            com.futu.openapi.pb.QotRequestRehab.Response response = webSocketClient.requestRehabSync(security);
+            com.futu.openapi.pb.QotRequestRehab.Response response = webSocketClient.getRehabSync(security);
 
             if (response == null || response.getRetType() != 0) {
                 log.warn("获取除权除息信息响应失败: {}", response != null ? response.getRetMsg() : "response is null");

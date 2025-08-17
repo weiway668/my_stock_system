@@ -116,7 +116,7 @@ public interface FutuMarketDataService {
      * @param symbol 股票代码
      * @return 公司行动实体列表
      */
-    List<CorporateActionEntity> requestRehab(String symbol);
+    List<CorporateActionEntity> getRehab(String symbol);
 
     /**
      * K线类型枚举

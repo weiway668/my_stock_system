@@ -314,7 +314,7 @@ class FutuMarketDataServiceImplTest {
         // Given - 测试客户端已设置为已连接状态
 
         // When
-        List<CorporateActionEntity> actions = marketDataService.requestRehab(TEST_SYMBOL);
+        List<CorporateActionEntity> actions = marketDataService.getRehab(TEST_SYMBOL);
         log.debug("获取到 {} 条公司行动数据", actions.size());
         //打印所有公司行动数据
         actions.forEach(action -> log.debug("公司行动: {}", action));
