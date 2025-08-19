@@ -58,7 +58,7 @@ public class BacktestEngine {
                 log.info("数据加载完成: {} 条记录", historicalData.size());
 
                 // 2. 初始化投资组合管理器
-                PortfolioManager portfolioManager = new PortfolioManager(request.getInitialCapital().doubleValue());
+                PortfolioManager portfolioManager = new PortfolioManager(request.getInitialCapital().doubleValue(), request.getSlippageRate().doubleValue());
                 LocalDate lastDate = null;
 
                 // 3. 循环执行回测

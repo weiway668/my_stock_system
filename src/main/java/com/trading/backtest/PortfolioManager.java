@@ -1,18 +1,18 @@
 package com.trading.backtest;
 
-import com.trading.domain.entity.Order;
-import com.trading.domain.enums.OrderSide;
-import lombok.Getter;
-import lombok.extern.slf4j.Slf4j;
-
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import com.trading.domain.entity.Order;
+import com.trading.domain.enums.OrderSide;
+
+import lombok.Getter;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 投资组合管理器
@@ -26,7 +26,8 @@ public class PortfolioManager {
     private BigDecimal cash; // 当前现金
     private final Map<String, Position> positions; // 当前持仓
     private final List<EquitySnapshot> dailyEquitySnapshots; // 每日权益快照
-    private final List<Order> tradeHistory; // 交易历史
+    private final BigDecimal slippageRate; // 滑点率
+    private List<Order> tradeHistory;
 
     /**
      * 投资组合内部持仓记录
@@ -52,10 +53,12 @@ public class PortfolioManager {
     /**
      * 构造函数
      * @param initialCash 初始投入资金
+     * @param slippageRate 滑点率 (例如 0.0005)
      */
-    public PortfolioManager(double initialCash) {
+    public PortfolioManager(double initialCash, double slippageRate) {
         this.initialCash = BigDecimal.valueOf(initialCash);
         this.cash = BigDecimal.valueOf(initialCash);
+        this.slippageRate = BigDecimal.valueOf(slippageRate);
         this.positions = new HashMap<>();
         this.dailyEquitySnapshots = new ArrayList<>();
         this.tradeHistory = new ArrayList<>();
@@ -80,12 +83,16 @@ public class PortfolioManager {
     private void executeBuy(Order buyOrder) {
         String symbol = buyOrder.getSymbol();
         long quantity = buyOrder.getQuantity();
-        BigDecimal price = buyOrder.getPrice();
-        BigDecimal transactionCost = price.multiply(BigDecimal.valueOf(quantity));
+        BigDecimal idealPrice = buyOrder.getPrice();
+        
+        // 应用滑点：买入时价格更高
+        BigDecimal slippage = idealPrice.multiply(this.slippageRate);
+        BigDecimal executionPrice = idealPrice.add(slippage);
+        
+        BigDecimal transactionCost = executionPrice.multiply(BigDecimal.valueOf(quantity));
 
         if (cash.compareTo(transactionCost) < 0) {
             log.warn("现金不足，无法执行买入订单: {}", buyOrder);
-            // 在真实场景中可以部分成交或失败，这里简化为完全失败
             return;
         }
 
@@ -94,13 +101,18 @@ public class PortfolioManager {
         Position currentPosition = positions.getOrDefault(symbol, new Position(symbol, 0, BigDecimal.ZERO, BigDecimal.ZERO));
         
         long newQuantity = currentPosition.quantity() + quantity;
+        // 成本需要用滑点后的执行价计算
         BigDecimal newTotalCost = currentPosition.averageCost().multiply(BigDecimal.valueOf(currentPosition.quantity()))
                                     .add(transactionCost);
         BigDecimal newAverageCost = newTotalCost.divide(BigDecimal.valueOf(newQuantity), 4, RoundingMode.HALF_UP);
 
-        positions.put(symbol, new Position(symbol, newQuantity, newAverageCost, BigDecimal.ZERO)); // 市值将在下个tick更新
-        this.tradeHistory.add(buyOrder); // 仅在成功后记录
-        log.debug("执行买入: {}, 当前现金: {}", buyOrder, cash);
+        positions.put(symbol, new Position(symbol, newQuantity, newAverageCost, BigDecimal.ZERO));
+        
+        // 更新订单信息并记录历史
+        buyOrder.setExecutedPrice(executionPrice);
+        buyOrder.setSlippage(slippage.multiply(BigDecimal.valueOf(quantity)));
+        this.tradeHistory.add(buyOrder);
+        log.debug("执行买入: {}, 执行价: {}, 当前现金: {}", buyOrder, executionPrice, cash);
     }
 
     /**
@@ -110,27 +122,33 @@ public class PortfolioManager {
     private void executeSell(Order sellOrder) {
         String symbol = sellOrder.getSymbol();
         long quantity = sellOrder.getQuantity();
-        BigDecimal price = sellOrder.getPrice();
+        BigDecimal idealPrice = sellOrder.getPrice();
 
         Position currentPosition = positions.get(symbol);
         if (currentPosition == null || currentPosition.quantity() < quantity) {
             log.warn("持仓不足，无法执行卖出订单: {}", sellOrder);
-            // 在真实场景中可以部分成交或失败，这里简化为完全失败
             return;
         }
 
-        BigDecimal transactionValue = price.multiply(BigDecimal.valueOf(quantity));
+        // 应用滑点：卖出时价格更低
+        BigDecimal slippage = idealPrice.multiply(this.slippageRate);
+        BigDecimal executionPrice = idealPrice.subtract(slippage);
+
+        BigDecimal transactionValue = executionPrice.multiply(BigDecimal.valueOf(quantity));
         cash = cash.add(transactionValue);
 
         long newQuantity = currentPosition.quantity() - quantity;
         if (newQuantity == 0) {
             positions.remove(symbol);
         } else {
-            // 平均成本在卖出时保持不变
             positions.put(symbol, new Position(symbol, newQuantity, currentPosition.averageCost(), BigDecimal.ZERO));
         }
-        this.tradeHistory.add(sellOrder); // 仅在成功后记录
-        log.debug("执行卖出: {}, 当前现金: {}", sellOrder, cash);
+        
+        // 更新订单信息并记录历史
+        sellOrder.setExecutedPrice(executionPrice);
+        sellOrder.setSlippage(slippage.multiply(BigDecimal.valueOf(quantity)));
+        this.tradeHistory.add(sellOrder);
+        log.debug("执行卖出: {}, 执行价: {}, 当前现金: {}", sellOrder, executionPrice, cash);
     }
 
     /**

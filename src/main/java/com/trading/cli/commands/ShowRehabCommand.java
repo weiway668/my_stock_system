@@ -1,18 +1,19 @@
 package com.trading.cli.commands;
 
-import com.trading.cli.AbstractCommand;
-import com.trading.cli.CommandException;
-import com.trading.domain.entity.CorporateActionEntity;
-import com.trading.domain.entity.CorporateActionEntity.CorporateActionType;
-import com.trading.repository.CorporateActionRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Options;
 import org.springframework.stereotype.Component;
 
-import java.time.format.DateTimeFormatter;
-import java.util.List;
+import com.trading.cli.AbstractCommand;
+import com.trading.cli.CommandException;
+import com.trading.domain.entity.CorporateActionEntity;
+import com.trading.repository.CorporateActionRepository;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 显示指定股票的本地复权数据命令
