@@ -3,6 +3,7 @@ package com.trading.strategy;
 import com.trading.domain.entity.MarketData;
 import com.trading.domain.entity.Order;
 import com.trading.domain.entity.Position;
+import com.trading.domain.enums.OrderType;
 import com.trading.domain.vo.TechnicalIndicators;
 
 import java.math.BigDecimal;
@@ -108,6 +109,7 @@ public interface TradingStrategy {
      */
     class TradingSignal {
         private SignalType type;
+        private OrderType orderType; // 订单类型（市价单、限价单等）
         private String symbol;
         private BigDecimal price;
         private Integer quantity;
@@ -128,6 +130,9 @@ public interface TradingStrategy {
         // Getters and Setters
         public SignalType getType() { return type; }
         public void setType(SignalType type) { this.type = type; }
+
+        public OrderType getOrderType() { return orderType; }
+        public void setOrderType(OrderType orderType) { this.orderType = orderType; }
         
         public String getSymbol() { return symbol; }
         public void setSymbol(String symbol) { this.symbol = symbol; }
