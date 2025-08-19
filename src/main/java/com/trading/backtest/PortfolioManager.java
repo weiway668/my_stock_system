@@ -71,7 +71,6 @@ public class PortfolioManager {
         } else if (order.getSide() == OrderSide.SELL) {
             executeSell(order);
         }
-        this.tradeHistory.add(order);
     }
 
     /**
@@ -100,6 +99,7 @@ public class PortfolioManager {
         BigDecimal newAverageCost = newTotalCost.divide(BigDecimal.valueOf(newQuantity), 4, RoundingMode.HALF_UP);
 
         positions.put(symbol, new Position(symbol, newQuantity, newAverageCost, BigDecimal.ZERO)); // 市值将在下个tick更新
+        this.tradeHistory.add(buyOrder); // 仅在成功后记录
         log.debug("执行买入: {}, 当前现金: {}", buyOrder, cash);
     }
 
@@ -129,6 +129,7 @@ public class PortfolioManager {
             // 平均成本在卖出时保持不变
             positions.put(symbol, new Position(symbol, newQuantity, currentPosition.averageCost(), BigDecimal.ZERO));
         }
+        this.tradeHistory.add(sellOrder); // 仅在成功后记录
         log.debug("执行卖出: {}, 当前现金: {}", sellOrder, cash);
     }
 
