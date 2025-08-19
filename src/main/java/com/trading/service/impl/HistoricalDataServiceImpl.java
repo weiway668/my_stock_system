@@ -11,11 +11,15 @@ import com.trading.infrastructure.futu.model.FutuKLine;
 import com.trading.infrastructure.futu.model.FutuKLine.RehabType;
 import com.trading.repository.CorporateActionRepository;
 import com.trading.repository.HistoricalDataRepository;
+import com.trading.service.CorporateActionService;
 import com.trading.service.HistoricalDataService;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,32 +41,45 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class HistoricalDataServiceImpl implements HistoricalDataService {
-    
+
     private final HistoricalDataRepository historicalDataRepository;
     private final CorporateActionRepository corporateActionRepository;
     private final FutuMarketDataService futuMarketDataService;
-    
+    private CorporateActionService corporateActionService;
+
+    public HistoricalDataServiceImpl(HistoricalDataRepository historicalDataRepository,
+            CorporateActionRepository corporateActionRepository, FutuMarketDataService futuMarketDataService) {
+        this.historicalDataRepository = historicalDataRepository;
+        this.corporateActionRepository = corporateActionRepository;
+        this.futuMarketDataService = futuMarketDataService;
+    }
+
     // 下载任务管理
     private final Map<String, CompletableFuture<Void>> downloadTasks = new ConcurrentHashMap<>();
     private final Map<String, Integer> downloadProgress = new ConcurrentHashMap<>();
-    
+
     // 线程池配置
     private final ExecutorService downloadExecutor = Executors.newFixedThreadPool(5);
-    
+
     // 配置参数
     @Value("${historical-data.download.batch-size:5}")
     private int batchDownloadSize;
-    
+
     @Value("${historical-data.download.page-size:1000}")
     private int pageSize;
-    
+
     @Value("${historical-data.download.retry-times:3}")
     private int retryTimes;
-    
+
     @Value("${historical-data.download.retry-delay:5000}")
     private long retryDelay;
+
+    @Autowired
+    @Lazy
+    public void setCorporateActionService(CorporateActionService corporateActionService) {
+        this.corporateActionService = corporateActionService;
+    }
 
     @Override
     public List<HistoricalKLineEntity> getHistoricalKLine(
@@ -71,8 +88,8 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
             LocalDate endDate,
             KLineType kLineType,
             RehabType rehabType) {
-        
-        log.debug("获取K线数据: symbol={}, period={}-{}, kLineType={}, rehabType={}", 
+
+        log.debug("获取K线数据: symbol={}, period={}-{}, kLineType={}, rehabType={}",
                 symbol, startDate, endDate, kLineType, rehabType);
 
         List<HistoricalKLineEntity> rawKLines = historicalDataRepository.findBySymbolAndTimeRange(
@@ -82,10 +99,18 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
             return rawKLines;
         }
 
-        List<CorporateActionEntity> corporateActions = corporateActionRepository.findByStockCodeOrderByExDividendDateDesc(symbol);
+        List<CorporateActionEntity> corporateActions = corporateActionRepository
+                .findByStockCodeOrderByExDividendDateDesc(symbol);
         if (corporateActions.isEmpty()) {
-            log.warn("未找到股票 {} 的复权因子信息，将返回原始数据", symbol);
-            return rawKLines;
+            log.info("本地未找到股票 {} 的复权因子，将尝试从Futu实时获取...", symbol);
+            corporateActionService.processAndSaveCorporateActionForStock(symbol);
+            // 再次查询
+            corporateActions = corporateActionRepository.findByStockCodeOrderByExDividendDateDesc(symbol);
+
+            if (corporateActions.isEmpty()) {
+                log.warn("尝试获取后，股票 {} 仍无复权因子信息，将返回原始数据", symbol);
+                return rawKLines;
+            }
         }
 
         if (rehabType == RehabType.BACKWARD) {
@@ -97,7 +122,8 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
         }
     }
 
-    private List<HistoricalKLineEntity> applyBackwardAdjustment(List<HistoricalKLineEntity> rawKLines, List<CorporateActionEntity> corporateActions) {
+    private List<HistoricalKLineEntity> applyBackwardAdjustment(List<HistoricalKLineEntity> rawKLines,
+            List<CorporateActionEntity> corporateActions) {
         log.debug("开始应用后复权调整，原始K线数量: {}, 复权因子数量: {}", rawKLines.size(), corporateActions.size());
         List<HistoricalKLineEntity> adjustedKLines = new ArrayList<>();
 
@@ -127,7 +153,7 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
         log.debug("后复权调整完成，生成K线数量: {}", adjustedKLines.size());
         return adjustedKLines;
     }
-    
+
     @Override
     public CompletableFuture<BatchDownloadResult> downloadBatchHistoricalData(
             List<String> symbols,
@@ -135,33 +161,33 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
             LocalDate endDate,
             KLineType kLineType,
             RehabType rehabType) {
-        
+
         String taskId = generateTaskId(symbols, kLineType);
-        log.info("开始批量下载历史数据: taskId={}, symbols={}, period={}-{}, kLineType={}", 
+        log.info("开始批量下载历史数据: taskId={}, symbols={}, period={}-{}, kLineType={}",
                 taskId, symbols, startDate, endDate, kLineType);
-        
+
         return CompletableFuture.supplyAsync(() -> {
             long startTime = System.currentTimeMillis();
             Map<String, DownloadResult> results = new ConcurrentHashMap<>();
-            
+
             try {
                 // 初始化进度跟踪
                 downloadProgress.put(taskId, 0);
-                
+
                 // 分批处理股票列表
                 List<List<String>> batches = createBatches(symbols, batchDownloadSize);
                 int totalBatches = batches.size();
                 int completedBatches = 0;
-                
+
                 for (List<String> batch : batches) {
                     // 并行下载当前批次的股票
                     List<CompletableFuture<DownloadResult>> batchTasks = batch.stream()
                             .map(symbol -> downloadSingleSymbol(symbol, startDate, endDate, kLineType, rehabType))
                             .collect(Collectors.toList());
-                    
+
                     // 等待当前批次完成
                     CompletableFuture.allOf(batchTasks.toArray(new CompletableFuture[0])).join();
-                    
+
                     // 收集结果
                     for (CompletableFuture<DownloadResult> task : batchTasks) {
                         try {
@@ -171,28 +197,28 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
                             log.warn("获取下载结果失败: {}", e.getMessage());
                         }
                     }
-                    
+
                     // 更新进度
                     completedBatches++;
                     int progress = (completedBatches * 100) / totalBatches;
                     downloadProgress.put(taskId, progress);
-                    
+
                     log.info("批次进度: {}/{}, 总进度: {}%", completedBatches, totalBatches, progress);
                 }
-                
+
                 // 完成下载
                 downloadProgress.put(taskId, 100);
-                
+
                 // 统计结果
                 long successCount = results.values().stream().mapToLong(r -> r.success() ? 1 : 0).sum();
                 long failedCount = results.size() - successCount;
                 long totalTime = System.currentTimeMillis() - startTime;
-                
-                String summary = String.format("批量下载完成: 成功=%d, 失败=%d, 耗时=%.1fs", 
+
+                String summary = String.format("批量下载完成: 成功=%d, 失败=%d, 耗时=%.1fs",
                         successCount, failedCount, totalTime / 1000.0);
-                
+
                 log.info(summary);
-                
+
                 return new BatchDownloadResult(
                         taskId,
                         symbols.size(),
@@ -200,9 +226,8 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
                         (int) failedCount,
                         results,
                         totalTime,
-                        summary
-                );
-                
+                        summary);
+
             } catch (Exception e) {
                 log.error("批量下载异常: taskId={}", taskId, e);
                 downloadProgress.put(taskId, -1); // 标记为失败
@@ -210,7 +235,7 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
             }
         }, downloadExecutor);
     }
-    
+
     @Override
     public CompletableFuture<DownloadResult> downloadHistoricalData(
             String symbol,
@@ -218,74 +243,71 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
             LocalDate endDate,
             KLineType kLineType,
             RehabType rehabType) {
-        
+
         return downloadSingleSymbol(symbol, startDate, endDate, kLineType, rehabType);
     }
-    
+
     private CompletableFuture<DownloadResult> downloadSingleSymbol(
             String symbol,
             LocalDate startDate,
             LocalDate endDate,
             KLineType kLineType,
             RehabType rehabType) {
-        
+
         return CompletableFuture.supplyAsync(() -> {
             log.debug("开始下载单个股票数据: symbol={}, period={}-{}", symbol, startDate, endDate);
-            
+
             long startTime = System.currentTimeMillis();
             MarketType market = MarketType.fromSymbol(symbol);
-            
+
             try {
                 // 获取FUTU历史数据
                 List<FutuKLine> futuKLines = futuMarketDataService.getHistoricalKLine(
                         symbol, startDate, endDate, convertToFutuKLineType(kLineType));
-                
+
                 if (futuKLines.isEmpty()) {
                     log.warn("未获取到历史数据: symbol={}", symbol);
                     return new DownloadResult(
                             symbol, market, kLineType,
                             startDate.atStartOfDay(), endDate.atTime(23, 59, 59),
                             0, 0, false,
-                            "未获取到历史数据", System.currentTimeMillis() - startTime
-                    );
+                            "未获取到历史数据", System.currentTimeMillis() - startTime);
                 }
-                
+
                 // 转换并保存数据
                 List<HistoricalKLineEntity> entities = convertToEntities(futuKLines, market, kLineType, rehabType);
                 int savedCount = saveHistoricalData(entities);
-                
-                log.info("下载完成: symbol={}, downloaded={}, saved={}", 
+
+                log.info("下载完成: symbol={}, downloaded={}, saved={}",
                         symbol, futuKLines.size(), savedCount);
-                
+
                 return new DownloadResult(
                         symbol, market, kLineType,
                         startDate.atStartOfDay(), endDate.atTime(23, 59, 59),
                         futuKLines.size(), savedCount, true,
-                        null, System.currentTimeMillis() - startTime
-                );
-                
+                        null, System.currentTimeMillis() - startTime);
+
             } catch (Exception e) {
                 log.error("下载股票数据失败: symbol={}", symbol, e);
                 return new DownloadResult(
                         symbol, market, kLineType,
                         startDate.atStartOfDay(), endDate.atTime(23, 59, 59),
                         0, 0, false,
-                        e.getMessage(), System.currentTimeMillis() - startTime
-                );
+                        e.getMessage(), System.currentTimeMillis() - startTime);
             }
         }, downloadExecutor);
     }
-    
+
     @Override
     public CompletableFuture<UpdateResult> incrementalUpdate(String symbol, KLineType kLineType) {
         return CompletableFuture.supplyAsync(() -> {
             log.debug("开始增量更新: symbol={}, kLineType={}", symbol, kLineType);
-            
+
             try {
                 // 获取本地最新数据时间
                 Optional<LocalDateTime> lastLocalTime = historicalDataRepository
                         .findLatestTimestamp(symbol, kLineType, RehabType.NONE);
-                
+
                 LocalDateTime updateStartTime;
                 if (lastLocalTime.isPresent()) {
                     // 从最后一条数据的下一个周期开始更新
@@ -294,58 +316,54 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
                     // 如果没有历史数据，从30天前开始
                     updateStartTime = LocalDateTime.now().minusDays(30);
                 }
-                
+
                 LocalDateTime updateEndTime = LocalDateTime.now();
-                
+
                 // 检查是否需要更新
                 if (!updateStartTime.isBefore(updateEndTime)) {
                     log.debug("数据已是最新: symbol={}", symbol);
                     return new UpdateResult(
                             symbol, kLineType,
                             lastLocalTime.orElse(null), updateEndTime,
-                            0, true, "数据已是最新"
-                    );
+                            0, true, "数据已是最新");
                 }
-                
+
                 // 执行增量下载
                 DownloadResult downloadResult = downloadSingleSymbol(
                         symbol,
                         updateStartTime.toLocalDate(),
                         updateEndTime.toLocalDate(),
                         kLineType,
-                        RehabType.NONE
-                ).get();
-                
+                        RehabType.NONE).get();
+
                 return new UpdateResult(
                         symbol, kLineType,
                         lastLocalTime.orElse(null), updateEndTime,
                         downloadResult.savedCount(), downloadResult.success(),
-                        downloadResult.success() ? "增量更新完成" : downloadResult.errorMessage()
-                );
-                
+                        downloadResult.success() ? "增量更新完成" : downloadResult.errorMessage());
+
             } catch (Exception e) {
                 log.error("增量更新失败: symbol={}", symbol, e);
                 return new UpdateResult(
                         symbol, kLineType,
                         null, LocalDateTime.now(),
-                        0, false, "增量更新失败: " + e.getMessage()
-                );
+                        0, false, "增量更新失败: " + e.getMessage());
             }
         }, downloadExecutor);
     }
-    
+
     @Override
     public CompletableFuture<Map<String, UpdateResult>> batchIncrementalUpdate(
             List<String> symbols, KLineType kLineType) {
-        
+
         return CompletableFuture.supplyAsync(() -> {
             Map<String, UpdateResult> results = new ConcurrentHashMap<>();
-            
+
             // 并行执行增量更新
             List<CompletableFuture<UpdateResult>> updateTasks = symbols.stream()
                     .map(symbol -> incrementalUpdate(symbol, kLineType))
                     .collect(Collectors.toList());
-            
+
             // 等待所有任务完成并收集结果
             for (int i = 0; i < updateTasks.size(); i++) {
                 try {
@@ -355,52 +373,49 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
                     log.warn("批量增量更新中的单个任务失败: symbol={}", symbols.get(i), e);
                     results.put(symbols.get(i), new UpdateResult(
                             symbols.get(i), kLineType, null, LocalDateTime.now(),
-                            0, false, "更新任务异常: " + e.getMessage()
-                    ));
+                            0, false, "更新任务异常: " + e.getMessage()));
                 }
             }
-            
+
             return results;
         }, downloadExecutor);
     }
-    
+
     @Override
     public DataIntegrityReport validateDataIntegrity(
             String symbol, LocalDate startDate, LocalDate endDate, KLineType kLineType) {
-        
+
         log.debug("开始数据完整性校验: symbol={}, period={}-{}", symbol, startDate, endDate);
-        
+
         try {
             // 查询实际数据
             List<HistoricalKLineEntity> actualData = historicalDataRepository
                     .findBySymbolAndTimeRange(symbol, kLineType, RehabType.NONE,
                             startDate.atStartOfDay(), endDate.atTime(23, 59, 59));
-            
+
             // 计算预期数据点数量
-            int expectedCount = calculateExpectedDataPoints(startDate, endDate, kLineType, 
+            int expectedCount = calculateExpectedDataPoints(startDate, endDate, kLineType,
                     MarketType.fromSymbol(symbol));
-            
+
             // 分析数据缺口
             List<DataGap> gaps = findDataGaps(actualData, kLineType);
-            
+
             // 检查数据问题
             List<String> issues = validateDataQuality(actualData);
-            
+
             // 计算完整率
-            double completenessRate = expectedCount > 0 ? 
-                    (double) actualData.size() / expectedCount : 1.0;
-            
+            double completenessRate = expectedCount > 0 ? (double) actualData.size() / expectedCount : 1.0;
+
             boolean isComplete = completenessRate >= 0.95 && gaps.isEmpty() && issues.isEmpty();
-            
-            log.debug("完整性校验完成: symbol={}, completeness={}%, gaps={}, issues={}", 
+
+            log.debug("完整性校验完成: symbol={}, completeness={}%, gaps={}, issues={}",
                     symbol, completenessRate * 100, gaps.size(), issues.size());
-            
+
             return new DataIntegrityReport(
                     symbol, kLineType, startDate, endDate,
                     expectedCount, actualData.size(), completenessRate,
-                    gaps, issues, isComplete
-            );
-            
+                    gaps, issues, isComplete);
+
         } catch (Exception e) {
             log.error("数据完整性校验异常: symbol={}", symbol, e);
             return new DataIntegrityReport(
@@ -408,29 +423,27 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
                     0, 0, 0.0,
                     Collections.emptyList(),
                     List.of("校验异常: " + e.getMessage()),
-                    false
-            );
+                    false);
         }
     }
-    
+
     @Override
     public DataQualityReport getDataQualityReport(String symbol, KLineType kLineType) {
         log.debug("生成数据质量报告: symbol={}, kLineType={}", symbol, kLineType);
-        
+
         try {
             // 获取所有数据
             List<HistoricalKLineEntity> allData = historicalDataRepository
                     .findBySymbolAndTimeRange(symbol, kLineType, RehabType.NONE,
                             LocalDateTime.now().minusYears(1), LocalDateTime.now());
-            
+
             if (allData.isEmpty()) {
                 return new DataQualityReport(
                         symbol, kLineType, 0, 0, 0.0,
                         0, 0, 0, Map.of(),
-                        Collections.emptyList(), "无数据"
-                );
+                        Collections.emptyList(), "无数据");
             }
-            
+
             // 数据质量分析
             int totalRecords = allData.size();
             int validRecords = 0;
@@ -438,104 +451,98 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
             int volumeAnomalies = 0;
             int missingFields = 0;
             List<DataAnomaly> anomalies = new ArrayList<>();
-            
+
             for (HistoricalKLineEntity entity : allData) {
                 boolean isValid = true;
-                
+
                 // 检查字段完整性
-                if (entity.getOpen() == null || entity.getHigh() == null || 
-                    entity.getLow() == null || entity.getClose() == null) {
+                if (entity.getOpen() == null || entity.getHigh() == null ||
+                        entity.getLow() == null || entity.getClose() == null) {
                     missingFields++;
                     isValid = false;
                     anomalies.add(new DataAnomaly(
-                            entity.getTimestamp(), "OHLC", "非空", "缺失", "字段缺失"
-                    ));
+                            entity.getTimestamp(), "OHLC", "非空", "缺失", "字段缺失"));
                 }
-                
+
                 // 检查价格合理性
-                if (entity.getOpen() != null && entity.getHigh() != null && 
-                    entity.getLow() != null && entity.getClose() != null) {
+                if (entity.getOpen() != null && entity.getHigh() != null &&
+                        entity.getLow() != null && entity.getClose() != null) {
                     if (!entity.isValidKLine()) {
                         priceAnomalies++;
                         isValid = false;
                         anomalies.add(new DataAnomaly(
-                                entity.getTimestamp(), "价格关系", "High≥Low≥Close/Open", 
-                                String.format("H=%.2f,L=%.2f,O=%.2f,C=%.2f", 
-                                        entity.getHigh(), entity.getLow(), 
-                                        entity.getOpen(), entity.getClose()), "价格异常"
-                        ));
+                                entity.getTimestamp(), "价格关系", "High≥Low≥Close/Open",
+                                String.format("H=%.2f,L=%.2f,O=%.2f,C=%.2f",
+                                        entity.getHigh(), entity.getLow(),
+                                        entity.getOpen(), entity.getClose()),
+                                "价格异常"));
                     }
                 }
-                
+
                 // 检查成交量
                 if (entity.getVolume() != null && entity.getVolume() < 0) {
                     volumeAnomalies++;
                     isValid = false;
                     anomalies.add(new DataAnomaly(
-                            entity.getTimestamp(), "成交量", "≥0", 
-                            entity.getVolume().toString(), "成交量异常"
-                    ));
+                            entity.getTimestamp(), "成交量", "≥0",
+                            entity.getVolume().toString(), "成交量异常"));
                 }
-                
+
                 if (isValid) {
                     validRecords++;
                 }
             }
-            
+
             // 计算质量分数
             double qualityScore = totalRecords > 0 ? (double) validRecords / totalRecords * 100 : 0;
-            
+
             // 问题统计
             Map<String, Integer> issueStats = Map.of(
                     "字段缺失", missingFields,
                     "价格异常", priceAnomalies,
-                    "成交量异常", volumeAnomalies
-            );
-            
+                    "成交量异常", volumeAnomalies);
+
             // 生成建议
             String recommendation = generateQualityRecommendation(qualityScore, issueStats);
-            
+
             return new DataQualityReport(
                     symbol, kLineType, totalRecords, validRecords, qualityScore,
                     priceAnomalies, volumeAnomalies, missingFields,
-                    issueStats, anomalies, recommendation
-            );
-            
+                    issueStats, anomalies, recommendation);
+
         } catch (Exception e) {
             log.error("生成数据质量报告异常: symbol={}", symbol, e);
             return new DataQualityReport(
                     symbol, kLineType, 0, 0, 0.0,
                     0, 0, 0, Map.of(),
-                    Collections.emptyList(), "报告生成失败: " + e.getMessage()
-            );
+                    Collections.emptyList(), "报告生成失败: " + e.getMessage());
         }
     }
-    
+
     @Override
     public CompletableFuture<RepairResult> repairDataGaps(String symbol, KLineType kLineType) {
         return CompletableFuture.supplyAsync(() -> {
             log.info("开始修复数据缺口: symbol={}, kLineType={}", symbol, kLineType);
-            
+
             try {
                 // 获取数据时间范围
                 DataTimeRange timeRange = getLocalDataTimeRange(symbol, kLineType);
                 if (!timeRange.hasData()) {
                     return new RepairResult(
                             symbol, kLineType, 0, 0, 0, true,
-                            List.of("无历史数据，无需修复")
-                    );
+                            List.of("无历史数据，无需修复"));
                 }
-                
+
                 // 检查数据完整性
                 DataIntegrityReport integrityReport = validateDataIntegrity(
-                        symbol, timeRange.earliest().toLocalDate(), 
+                        symbol, timeRange.earliest().toLocalDate(),
                         timeRange.latest().toLocalDate(), kLineType);
-                
+
                 List<String> repairDetails = new ArrayList<>();
                 int gapsFound = integrityReport.gaps().size();
                 int gapsRepaired = 0;
                 int recordsAdded = 0;
-                
+
                 if (gapsFound == 0) {
                     repairDetails.add("未发现数据缺口");
                 } else {
@@ -547,9 +554,8 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
                                     gap.startTime().toLocalDate(),
                                     gap.endTime().toLocalDate(),
                                     kLineType,
-                                    RehabType.NONE
-                            ).get();
-                            
+                                    RehabType.NONE).get();
+
                             if (repairResult.success()) {
                                 gapsRepaired++;
                                 recordsAdded += repairResult.savedCount();
@@ -569,25 +575,23 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
                         }
                     }
                 }
-                
+
                 log.info("数据缺口修复完成: symbol={}, 发现缺口={}, 修复成功={}, 添加记录={}",
                         symbol, gapsFound, gapsRepaired, recordsAdded);
-                
+
                 return new RepairResult(
                         symbol, kLineType, gapsFound, gapsRepaired, recordsAdded,
-                        gapsRepaired == gapsFound, repairDetails
-                );
-                
+                        gapsRepaired == gapsFound, repairDetails);
+
             } catch (Exception e) {
                 log.error("修复数据缺口异常: symbol={}", symbol, e);
                 return new RepairResult(
                         symbol, kLineType, 0, 0, 0, false,
-                        List.of("修复异常: " + e.getMessage())
-                );
+                        List.of("修复异常: " + e.getMessage()));
             }
         }, downloadExecutor);
     }
-    
+
     @Override
     public DataTimeRange getLocalDataTimeRange(String symbol, KLineType kLineType) {
         try {
@@ -595,32 +599,31 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
                     .findEarliestTimestamp(symbol, kLineType, RehabType.NONE);
             Optional<LocalDateTime> latest = historicalDataRepository
                     .findLatestTimestamp(symbol, kLineType, RehabType.NONE);
-            
+
             if (earliest.isEmpty() || latest.isEmpty()) {
                 return new DataTimeRange(symbol, kLineType, null, null, 0, false);
             }
-            
+
             long totalRecords = historicalDataRepository
                     .countBySymbolAndTimeRange(symbol, kLineType, RehabType.NONE,
                             earliest.get(), latest.get());
-            
+
             return new DataTimeRange(
                     symbol, kLineType,
                     earliest.get(), latest.get(),
-                    (int) totalRecords, true
-            );
-            
+                    (int) totalRecords, true);
+
         } catch (Exception e) {
             log.warn("获取数据时间范围失败: symbol={}", symbol, e);
             return new DataTimeRange(symbol, kLineType, null, null, 0, false);
         }
     }
-    
+
     @Override
     public int cleanExpiredData(KLineType kLineType, int keepDays) {
         LocalDateTime cutoffTime = LocalDateTime.now().minusDays(keepDays);
         log.info("清理过期数据: kLineType={}, cutoffTime={}", kLineType, cutoffTime);
-        
+
         try {
             int deletedCount = historicalDataRepository.deleteExpiredData(kLineType, cutoffTime);
             log.info("清理完成: kLineType={}, 删除记录数={}", kLineType, deletedCount);
@@ -630,12 +633,12 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
             return 0;
         }
     }
-    
+
     @Override
     public int getDownloadProgress(String taskId) {
         return downloadProgress.getOrDefault(taskId, -1);
     }
-    
+
     @Override
     public boolean cancelDownloadTask(String taskId) {
         CompletableFuture<Void> task = downloadTasks.get(taskId);
@@ -650,14 +653,14 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
         }
         return false;
     }
-    
+
     // ==================== 私有辅助方法 ====================
-    
+
     private String generateTaskId(List<String> symbols, KLineType kLineType) {
-        return String.format("batch_%s_%d_%d", 
+        return String.format("batch_%s_%d_%d",
                 kLineType.name(), symbols.hashCode(), System.currentTimeMillis());
     }
-    
+
     private List<List<String>> createBatches(List<String> items, int batchSize) {
         List<List<String>> batches = new ArrayList<>();
         for (int i = 0; i < items.size(); i += batchSize) {
@@ -665,7 +668,7 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
         }
         return batches;
     }
-    
+
     private FutuMarketDataService.KLineType convertToFutuKLineType(KLineType kLineType) {
         return switch (kLineType) {
             case K_1MIN -> FutuMarketDataService.KLineType.K_1MIN;
@@ -678,11 +681,11 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
             case K_MONTH -> FutuMarketDataService.KLineType.K_MONTH;
         };
     }
-    
+
     private List<HistoricalKLineEntity> convertToEntities(
-            List<FutuKLine> futuKLines, MarketType market, 
+            List<FutuKLine> futuKLines, MarketType market,
             KLineType kLineType, RehabType rehabType) {
-        
+
         return futuKLines.stream().map(futuKLine -> {
             HistoricalKLineEntity entity = HistoricalKLineEntity.builder()
                     .symbol(futuKLine.getCode())
@@ -706,12 +709,12 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
                     .qualityScore(calculateQualityScore(futuKLine))
                     .dataVersion(1)
                     .build();
-            
+
             entity.generateId();
             return entity;
         }).collect(Collectors.toList());
     }
-    
+
     @Transactional
     private int saveHistoricalData(List<HistoricalKLineEntity> entities) {
         try {
@@ -721,7 +724,7 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
             return entities.size();
         } catch (Exception e) {
             log.warn("批量保存失败，尝试单条保存: {}", e.getMessage());
-            
+
             int savedCount = 0;
             for (HistoricalKLineEntity entity : entities) {
                 try {
@@ -734,7 +737,7 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
             return savedCount;
         }
     }
-    
+
     private LocalDateTime calculateNextPeriod(LocalDateTime lastTime, KLineType kLineType) {
         return switch (kLineType) {
             case K_1MIN -> lastTime.plusMinutes(1);
@@ -747,60 +750,59 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
             case K_MONTH -> lastTime.plusMonths(1);
         };
     }
-    
-    private int calculateExpectedDataPoints(LocalDate startDate, LocalDate endDate, 
-                                           KLineType kLineType, MarketType market) {
+
+    private int calculateExpectedDataPoints(LocalDate startDate, LocalDate endDate,
+            KLineType kLineType, MarketType market) {
         // 简化的计算逻辑，实际应考虑交易日历
         long days = java.time.temporal.ChronoUnit.DAYS.between(startDate, endDate) + 1;
-        
+
         // 假设每周5个交易日
         long tradingDays = days * 5 / 7;
-        
+
         return switch (kLineType) {
             case K_1MIN -> (int) (tradingDays * 240); // 每日240根1分钟K线
-            case K_5MIN -> (int) (tradingDays * 48);  // 每日48根5分钟K线
+            case K_5MIN -> (int) (tradingDays * 48); // 每日48根5分钟K线
             case K_15MIN -> (int) (tradingDays * 16); // 每日16根15分钟K线
-            case K_30MIN -> (int) (tradingDays * 8);  // 每日8根30分钟K线
-            case K_60MIN -> (int) (tradingDays * 4);  // 每日4根60分钟K线
-            case K_DAY -> (int) tradingDays;          // 每日1根日K线
-            case K_WEEK -> (int) (tradingDays / 5);   // 每周1根周K线
+            case K_30MIN -> (int) (tradingDays * 8); // 每日8根30分钟K线
+            case K_60MIN -> (int) (tradingDays * 4); // 每日4根60分钟K线
+            case K_DAY -> (int) tradingDays; // 每日1根日K线
+            case K_WEEK -> (int) (tradingDays / 5); // 每周1根周K线
             case K_MONTH -> (int) (tradingDays / 22); // 每月1根月K线
         };
     }
-    
+
     private List<DataGap> findDataGaps(List<HistoricalKLineEntity> data, KLineType kLineType) {
         if (data.size() < 2) {
             return Collections.emptyList();
         }
-        
+
         List<DataGap> gaps = new ArrayList<>();
         data.sort(Comparator.comparing(HistoricalKLineEntity::getTimestamp));
-        
+
         for (int i = 1; i < data.size(); i++) {
             HistoricalKLineEntity prev = data.get(i - 1);
             HistoricalKLineEntity curr = data.get(i);
-            
+
             LocalDateTime expectedNextTime = calculateNextPeriod(prev.getTimestamp(), kLineType);
-            
+
             // 如果当前时间与预期下一个时间点之间有间隔，说明存在缺口
             if (curr.getTimestamp().isAfter(expectedNextTime)) {
                 int missingCount = calculateMissingPeriods(
                         expectedNextTime, curr.getTimestamp(), kLineType);
-                
+
                 if (missingCount > 0) {
                     gaps.add(new DataGap(
                             expectedNextTime,
                             curr.getTimestamp().minus(getPeriodDuration(kLineType)),
                             missingCount,
-                            "数据时间序列中断"
-                    ));
+                            "数据时间序列中断"));
                 }
             }
         }
-        
+
         return gaps;
     }
-    
+
     private int calculateMissingPeriods(LocalDateTime start, LocalDateTime end, KLineType kLineType) {
         return switch (kLineType) {
             case K_1MIN -> (int) java.time.temporal.ChronoUnit.MINUTES.between(start, end);
@@ -813,7 +815,7 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
             case K_MONTH -> (int) java.time.temporal.ChronoUnit.MONTHS.between(start, end);
         };
     }
-    
+
     private java.time.temporal.TemporalAmount getPeriodDuration(KLineType kLineType) {
         return switch (kLineType) {
             case K_1MIN -> java.time.Duration.ofMinutes(1);
@@ -826,42 +828,42 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
             case K_MONTH -> java.time.Duration.ofDays(30);
         };
     }
-    
+
     private List<String> validateDataQuality(List<HistoricalKLineEntity> data) {
         List<String> issues = new ArrayList<>();
-        
+
         for (HistoricalKLineEntity entity : data) {
             if (!entity.isValidKLine()) {
                 issues.add(String.format("价格数据异常: %s", entity.getTimestamp()));
             }
         }
-        
+
         return issues;
     }
-    
+
     private int calculateQualityScore(FutuKLine futuKLine) {
         int score = 100;
-        
+
         // 检查必要字段
         if (futuKLine.getOpen() == null || futuKLine.getHigh() == null ||
-            futuKLine.getLow() == null || futuKLine.getClose() == null) {
+                futuKLine.getLow() == null || futuKLine.getClose() == null) {
             score -= 50;
         }
-        
+
         // 检查价格合理性
         if (futuKLine.getHigh() != null && futuKLine.getLow() != null &&
-            futuKLine.getHigh().compareTo(futuKLine.getLow()) < 0) {
+                futuKLine.getHigh().compareTo(futuKLine.getLow()) < 0) {
             score -= 30;
         }
-        
+
         // 检查成交量
         if (futuKLine.getVolume() == null || futuKLine.getVolume() < 0) {
             score -= 20;
         }
-        
+
         return Math.max(0, score);
     }
-    
+
     private String generateQualityRecommendation(double qualityScore, Map<String, Integer> issueStats) {
         if (qualityScore >= 95) {
             return "数据质量优秀，无需特殊处理";

@@ -525,7 +525,7 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
     }
 
     @Override
-    public List<CorporateActionEntity> getRehab(String symbol) {
+    public List<QotCommon.Rehab> getRehab(String symbol) {
         try {
             log.debug("获取除权除息信息: symbol={}", symbol);
 
@@ -546,14 +546,12 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
                 return new ArrayList<>();
             }
 
-            if (response.getS2C() == null || response.getS2C().getRehabListOrBuilderList().isEmpty()) {
+            if (response.getS2C() == null || response.getS2C().getRehabListList().isEmpty()) {
                 log.info("该股票没有除权除息信息: {}", symbol);
                 return new ArrayList<>();
             }
 
-            return response.getS2C().getRehabListOrBuilderList().stream()
-                    .flatMap(rehab -> FutuDataConverter.convertToCorporateActionList(rehab, symbol).stream())
-                    .collect(Collectors.toList());
+            return response.getS2C().getRehabListList();
 
         } catch (Exception e) {
             log.error("获取除权除息信息异常: {}", symbol, e);

@@ -314,32 +314,18 @@ class FutuMarketDataServiceImplTest {
         // Given - 测试客户端已设置为已连接状态
 
         // When
-        List<CorporateActionEntity> actions = marketDataService.getRehab(TEST_SYMBOL);
-        log.debug("获取到 {} 条公司行动数据", actions.size());
-        //打印所有公司行动数据
-        actions.forEach(action -> log.debug("公司行动: {}", action));
+        List<com.futu.openapi.pb.QotCommon.Rehab> rehabList = marketDataService.getRehab(TEST_SYMBOL);
+        log.debug("获取到 {} 条原始Rehab数据", rehabList.size());
+        rehabList.forEach(rehab -> log.debug("原始Rehab数据: {}", rehab));
+
         // Then
-        assertThat(actions).isNotNull();
-        assertThat(actions).isNotEmpty();
+        assertThat(rehabList).isNotNull();
+        assertThat(rehabList).isNotEmpty();
 
-        // 验证返回的数据中至少包含一种预期的行动类型 (依赖于测试客户端的模拟数据)
-        // 例如，腾讯历史上有多次派息和拆股
-        boolean hasDividend = actions.stream().anyMatch(a -> a.getActionType() == CorporateActionEntity.CorporateActionType.DIVIDEND);
-        boolean hasSplit = actions.stream().anyMatch(a -> a.getActionType() == CorporateActionEntity.CorporateActionType.SPLIT);
-
-        assertThat(hasDividend).as("应至少包含派息数据").isTrue();
-        assertThat(hasSplit).as("应至少包含拆股数据").isTrue();
-
-        // 验证其中一个派息数据的细节
-        actions.stream()
-            .filter(a -> a.getActionType() == CorporateActionEntity.CorporateActionType.DIVIDEND)
-            .findFirst()
-            .ifPresent(dividendAction -> {
-                assertThat(dividendAction.getStockCode()).isEqualTo(TEST_SYMBOL);
-                assertThat(dividendAction.getDividend()).isGreaterThan(0);
-                assertThat(dividendAction.getForwardAdjFactor()).isLessThanOrEqualTo(1.0);
-            });
+        // 验证返回的原始数据中至少包含一个有效的条目
+        com.futu.openapi.pb.QotCommon.Rehab firstRehab = rehabList.get(0);
+        assertThat(firstRehab.getTime()).isNotEmpty(); // 验证时间字段存在
         
-        log.info("成功获取并验证了 {} 条公司行动数据", actions.size());
+        log.info("成功获取并验证了 {} 条原始Rehab数据", rehabList.size());
     }
 }
