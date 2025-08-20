@@ -1,18 +1,5 @@
 package com.trading.service;
 
-import com.trading.domain.entity.Order;
-import com.trading.domain.entity.Position;
-import com.trading.domain.enums.OrderSide;
-import com.trading.domain.enums.OrderStatus;
-import com.trading.infrastructure.cache.CacheService;
-import com.trading.repository.OrderRepository;
-import com.trading.repository.PositionRepository;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -20,7 +7,21 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.trading.domain.entity.Order;
+import com.trading.domain.entity.Position;
+import com.trading.domain.enums.OrderSide;
+import com.trading.domain.enums.OrderStatus;
+import com.trading.infrastructure.cache.CacheService;
+import com.trading.repository.OrderRepository;
+import com.trading.repository.PositionRepository;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 风险管理服务

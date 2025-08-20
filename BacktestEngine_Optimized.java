@@ -12,16 +12,10 @@ import com.trading.strategy.TradingStrategy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.ta4j.core.Bar;
 import org.ta4j.core.BarSeries;
 import org.ta4j.core.BaseBarSeries;
-import org.ta4j.core.indicators.ATRIndicator;
-import org.ta4j.core.indicators.CCIIndicator;
-import org.ta4j.core.indicators.EMAIndicator;
-import org.ta4j.core.indicators.MACDIndicator;
-import org.ta4j.core.indicators.RSIIndicator;
-import org.ta4j.core.indicators.SMAIndicator;
-import org.ta4j.core.indicators.StochasticOscillatorDIndicator;
-import org.ta4j.core.indicators.StochasticOscillatorKIndicator;
+import org.ta4j.core.indicators.*;
 import org.ta4j.core.indicators.adx.ADXIndicator;
 import org.ta4j.core.indicators.adx.MinusDIIndicator;
 import org.ta4j.core.indicators.adx.PlusDIIndicator;
@@ -29,7 +23,11 @@ import org.ta4j.core.indicators.bollinger.BollingerBandsLowerIndicator;
 import org.ta4j.core.indicators.bollinger.BollingerBandsMiddleIndicator;
 import org.ta4j.core.indicators.bollinger.BollingerBandsUpperIndicator;
 import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
+import org.ta4j.core.indicators.helpers.VolumeIndicator;
 import org.ta4j.core.indicators.statistics.StandardDeviationIndicator;
+import org.ta4j.core.indicators.volume.MoneyFlowIndexIndicator;
+import org.ta4j.core.indicators.volume.OnBalanceVolumeIndicator;
+import org.ta4j.core.indicators.volume.VWAPIndicator;
 import org.ta4j.core.num.DecimalNum;
 import org.ta4j.core.num.Num;
 
@@ -43,12 +41,10 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
-/**
- * 回测引擎 (已重构以支持限价单和高性能指标计算)
- */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -57,55 +53,52 @@ public class BacktestEngine {
     private final MarketDataService marketDataService;
     private final HKStockCommissionCalculator commissionCalculator;
 
-    // 用于持有预先计算好的TA4J指标对象，保证后续策略使用时不会为空
     private record PrecalculatedIndicators(
-            BollingerBandsUpperIndicator bbUpper,
-            BollingerBandsMiddleIndicator bbMiddle,
-            BollingerBandsLowerIndicator bbLower,
-            MACDIndicator macd,
-            EMAIndicator macdSignal,
-            RSIIndicator rsi,
-            SMAIndicator sma20,
-            SMAIndicator sma50,
-            EMAIndicator ema12,
-            EMAIndicator ema20,
-            EMAIndicator ema26,
-            ATRIndicator atr,
-            ADXIndicator adx,
-            PlusDIIndicator plusDI,
-            MinusDIIndicator minusDI,
-            StochasticOscillatorKIndicator stochK,
-            StochasticOscillatorDIndicator stochD,
-            CCIIndicator cci
+            BarSeries series,
+            BollingerBandsUpperIndicator bbUpper, BollingerBandsMiddleIndicator bbMiddle, BollingerBandsLowerIndicator bbLower,
+            MACDIndicator macd, EMAIndicator macdSignal,
+            RSIIndicator rsi, SMAIndicator sma20, SMAIndicator sma50, EMAIndicator ema12, EMAIndicator ema20, EMAIndicator ema26, EMAIndicator ema50,
+            ATRIndicator atr, ADXIndicator adx, PlusDIIndicator plusDI, MinusDIIndicator minusDI,
+            StochasticOscillatorKIndicator stochK, StochasticOscillatorDIndicator stochD, CCIIndicator cci,
+            WilliamsRIndicator williamsR, ParabolicSarIndicator parabolicSar, OnBalanceVolumeIndicator obv,
+            MoneyFlowIndexIndicator mfi, VWAPIndicator vwap, SMAIndicator volumeSma
     ) {}
 
     public CompletableFuture<BacktestResult> runBacktest(BacktestRequest request) {
         return CompletableFuture.supplyAsync(() -> {
-            log.info("开始回测 (高性能模式): strategy={}, symbol={}, period={} to {}",
+            log.info("开始回测: strategy={}, symbol={}, period={} to {}",
                     request.getStrategyName(), request.getSymbol(), request.getStartTime(), request.getEndTime());
 
             try {
-                List<MarketData> historicalData = fetchHistoricalData(request);
-                if (historicalData.isEmpty() || historicalData.size() < 50) { // 50 for SMA50
-                    log.warn("历史数据不足 (少于50条)，无法进行有效回测");
+                final int WARMUP_DAYS = 100;
+                LocalDateTime fetchStartTime = request.getStartTime().minusDays(WARMUP_DAYS);
+                List<MarketData> historicalDataWithWarmup = fetchHistoricalData(request, fetchStartTime);
+
+                if (historicalDataWithWarmup.isEmpty() || historicalDataWithWarmup.size() < 50) {
+                    log.warn("历史数据不足(含预热数据)，无法进行有效回测");
                     return createEmptyResult(request);
                 }
 
-                BarSeries series = buildBarSeries(request.getSymbol(), historicalData);
+                BarSeries series = buildBarSeries(request.getSymbol(), historicalDataWithWarmup);
                 PrecalculatedIndicators precalculatedIndicators = precalculateIndicators(series);
 
                 PortfolioManager portfolioManager = new PortfolioManager(request.getInitialCapital().doubleValue(), request.getSlippageRate().doubleValue(), commissionCalculator);
                 List<Order> pendingOrders = new ArrayList<>();
                 LocalDate lastDate = null;
 
-                for (int i = 0; i < series.getBarCount(); i++) {
-                    MarketData currentData = historicalData.get(i);
+                int startIndex = findStartIndex(historicalDataWithWarmup, request.getStartTime());
+                if (startIndex == -1) {
+                    log.error("无法在数据序列中找到指定的开始时间: {}", request.getStartTime());
+                    return createErrorResult(request, "无法找到开始时间");
+                }
 
+                log.info("数据预热完成，将从第 {} 个数据点开始回测 (共 {} 条数据)", startIndex, historicalDataWithWarmup.size());
+
+                for (int i = startIndex; i < series.getBarCount(); i++) {
+                    MarketData currentData = historicalDataWithWarmup.get(i);
                     checkForTriggeredOrders(pendingOrders, currentData, portfolioManager);
                     portfolioManager.updatePositionsMarketValue(Map.of(currentData.getSymbol(), currentData.getClose()));
-
                     TechnicalIndicators indicators = getIndicatorsForIndex(precalculatedIndicators, i);
-
                     List<com.trading.domain.entity.Position> domainPositions = portfolioManager.getPositions().values().stream()
                             .map(this::convertToDomainPosition).collect(Collectors.toList());
                     TradingStrategy.TradingSignal signal = request.getStrategy().generateSignal(currentData, indicators, domainPositions);
@@ -133,46 +126,55 @@ public class BacktestEngine {
         });
     }
 
+    private int findStartIndex(List<MarketData> data, LocalDateTime targetStartTime) {
+        for (int i = 0; i < data.size(); i++) {
+            if (!data.get(i).getTimestamp().isBefore(targetStartTime)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private List<MarketData> fetchHistoricalData(BacktestRequest request, LocalDateTime startTime) {
+        try {
+            String timeframe = request.getTimeframe() != null ? request.getTimeframe() : "1d";
+            return marketDataService.getOhlcvData(request.getSymbol(), timeframe, startTime, request.getEndTime(), 20000).get();
+        } catch (Exception e) {
+            log.error("获取历史数据失败", e);
+            return new ArrayList<>();
+        }
+    }
+
     private BarSeries buildBarSeries(String symbol, List<MarketData> dataList) {
         BarSeries series = new BaseBarSeries(symbol);
         for (MarketData data : dataList) {
             ZonedDateTime zdt = ZonedDateTime.of(data.getTimestamp(), ZoneId.systemDefault());
-            series.addBar(
-                    zdt,
-                    DecimalNum.valueOf(data.getOpen()),
-                    DecimalNum.valueOf(data.getHigh()),
-                    DecimalNum.valueOf(data.getLow()),
-                    DecimalNum.valueOf(data.getClose()),
-                    DecimalNum.valueOf(data.getVolume())
-            );
+            series.addBar(zdt, data.getOpen(), data.getHigh(), data.getLow(), data.getClose(), data.getVolume());
         }
         return series;
     }
 
     private PrecalculatedIndicators precalculateIndicators(BarSeries series) {
         ClosePriceIndicator closePrice = new ClosePriceIndicator(series);
-        SMAIndicator sma20ForBB = new SMAIndicator(closePrice, 20);
-        BollingerBandsMiddleIndicator bbMiddle = new BollingerBandsMiddleIndicator(sma20ForBB);
-        StandardDeviationIndicator stdDev = new StandardDeviationIndicator(closePrice, 20);
-        BollingerBandsUpperIndicator bbUpper = new BollingerBandsUpperIndicator(bbMiddle, stdDev);
-        BollingerBandsLowerIndicator bbLower = new BollingerBandsLowerIndicator(bbMiddle, stdDev);
-        MACDIndicator macd = new MACDIndicator(closePrice, 12, 26);
-        EMAIndicator macdSignal = new EMAIndicator(macd, 9);
-        RSIIndicator rsi = new RSIIndicator(closePrice, 14);
+        VolumeIndicator volume = new VolumeIndicator(series);
         SMAIndicator sma20 = new SMAIndicator(closePrice, 20);
         SMAIndicator sma50 = new SMAIndicator(closePrice, 50);
         EMAIndicator ema12 = new EMAIndicator(closePrice, 12);
         EMAIndicator ema20 = new EMAIndicator(closePrice, 20);
         EMAIndicator ema26 = new EMAIndicator(closePrice, 26);
-        ATRIndicator atr = new ATRIndicator(series, 14);
-        ADXIndicator adx = new ADXIndicator(series, 14);
-        PlusDIIndicator plusDI = new PlusDIIndicator(series, 14);
-        MinusDIIndicator minusDI = new MinusDIIndicator(series, 14);
-        StochasticOscillatorKIndicator stochK = new StochasticOscillatorKIndicator(series, 14);
-        StochasticOscillatorDIndicator stochD = new StochasticOscillatorDIndicator(stochK);
-        CCIIndicator cci = new CCIIndicator(series, 20);
-
-        return new PrecalculatedIndicators(bbUpper, bbMiddle, bbLower, macd, macdSignal, rsi, sma20, sma50, ema12, ema20, ema26, atr, adx, plusDI, minusDI, stochK, stochD, cci);
+        EMAIndicator ema50 = new EMAIndicator(closePrice, 50);
+        BollingerBandsMiddleIndicator bbMiddle = new BollingerBandsMiddleIndicator(sma20);
+        StandardDeviationIndicator stdDev = new StandardDeviationIndicator(closePrice, 20);
+        return new PrecalculatedIndicators(
+                new BollingerBandsUpperIndicator(bbMiddle, stdDev), bbMiddle, new BollingerBandsLowerIndicator(bbMiddle, stdDev),
+                new MACDIndicator(closePrice, 12, 26), new EMAIndicator(new MACDIndicator(closePrice, 12, 26), 9),
+                new RSIIndicator(closePrice, 14), sma20, sma50, ema12, ema20, ema26, ema50,
+                new ATRIndicator(series, 14), new ADXIndicator(series, 14), new PlusDIIndicator(series, 14), new MinusDIIndicator(series, 14),
+                new StochasticOscillatorKIndicator(series, 14), new StochasticOscillatorDIndicator(new StochasticOscillatorKIndicator(series, 14)),
+                new CCIIndicator(series, 20), new WilliamsRIndicator(series, 14), new ParabolicSarIndicator(series),
+                new OnBalanceVolumeIndicator(series), new MoneyFlowIndexIndicator(series, 14), new VWAPIndicator(series, 14),
+                new SMAIndicator(volume, 20)
+        );
     }
 
     private TechnicalIndicators getIndicatorsForIndex(PrecalculatedIndicators indicators, int index) {
@@ -180,19 +182,30 @@ public class BacktestEngine {
         BigDecimal signalLine = toBigDecimal(indicators.macdSignal.getValue(index));
         BigDecimal histogram = (macdLine != null && signalLine != null) ? macdLine.subtract(signalLine) : null;
 
+        BigDecimal upperBand = toBigDecimal(indicators.bbUpper.getValue(index));
+        BigDecimal lowerBand = toBigDecimal(indicators.bbLower.getValue(index));
+        BigDecimal middleBand = toBigDecimal(indicators.bbMiddle.getValue(index));
+        BigDecimal bandwidth = null;
+        BigDecimal percentB = null;
+        if (upperBand != null && lowerBand != null && middleBand != null && middleBand.compareTo(BigDecimal.ZERO) != 0) {
+            bandwidth = upperBand.subtract(lowerBand).divide(middleBand, 4, RoundingMode.HALF_UP);
+            BigDecimal range = upperBand.subtract(lowerBand);
+            if (range.compareTo(BigDecimal.ZERO) != 0) {
+                Bar bar = indicators.series.getBar(index);
+                percentB = toBigDecimal(bar.getClosePrice()).subtract(lowerBand).divide(range, 4, RoundingMode.HALF_UP);
+            }
+        }
+
         return TechnicalIndicators.builder()
-                .upperBand(toBigDecimal(indicators.bbUpper.getValue(index)))
-                .middleBand(toBigDecimal(indicators.bbMiddle.getValue(index)))
-                .lowerBand(toBigDecimal(indicators.bbLower.getValue(index)))
-                .macdLine(macdLine)
-                .signalLine(signalLine)
-                .histogram(histogram)
+                .upperBand(upperBand).middleBand(middleBand).lowerBand(lowerBand).bandwidth(bandwidth).percentB(percentB)
+                .macdLine(macdLine).signalLine(signalLine).histogram(histogram)
                 .rsi(toBigDecimal(indicators.rsi.getValue(index)))
                 .sma20(toBigDecimal(indicators.sma20.getValue(index)))
                 .sma50(toBigDecimal(indicators.sma50.getValue(index)))
                 .ema12(toBigDecimal(indicators.ema12.getValue(index)))
                 .ema20(toBigDecimal(indicators.ema20.getValue(index)))
                 .ema26(toBigDecimal(indicators.ema26.getValue(index)))
+                .ema50(toBigDecimal(indicators.ema50.getValue(index)))
                 .atr(toBigDecimal(indicators.atr.getValue(index)))
                 .adx(toBigDecimal(indicators.adx.getValue(index)))
                 .plusDI(toBigDecimal(indicators.plusDI.getValue(index)))
@@ -200,6 +213,12 @@ public class BacktestEngine {
                 .stochK(toBigDecimal(indicators.stochK.getValue(index)))
                 .stochD(toBigDecimal(indicators.stochD.getValue(index)))
                 .cci(toBigDecimal(indicators.cci.getValue(index)))
+                .williamsR(toBigDecimal(indicators.williamsR.getValue(index)))
+                .parabolicSar(toBigDecimal(indicators.parabolicSar.getValue(index)))
+                .obv(toBigDecimal(indicators.obv.getValue(index)))
+                .vwap(toBigDecimal(indicators.vwap.getValue(index)))
+                .mfi(toBigDecimal(indicators.mfi.getValue(index)))
+                .volumeSma(toBigDecimal(indicators.volumeSma.getValue(index)))
                 .build();
     }
 
@@ -266,16 +285,6 @@ public class BacktestEngine {
         domainPosition.setAvgCost(backtestPosition.averageCost());
         domainPosition.setMarketValue(backtestPosition.marketValue());
         return domainPosition;
-    }
-
-    private List<MarketData> fetchHistoricalData(BacktestRequest request) {
-        try {
-            String timeframe = request.getTimeframe() != null ? request.getTimeframe() : "1d";
-            return marketDataService.getOhlcvData(request.getSymbol(), timeframe, request.getStartTime(), request.getEndTime(), 10000).get();
-        } catch (Exception e) {
-            log.error("获取历史数据失败", e);
-            return new ArrayList<>();
-        }
     }
 
     private BacktestResult calculateResult(PortfolioManager portfolioManager, BacktestRequest request) {

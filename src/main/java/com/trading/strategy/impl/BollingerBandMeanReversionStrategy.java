@@ -187,6 +187,7 @@ public class BollingerBandMeanReversionStrategy extends AbstractTradingStrategy 
             
             // 如果价格低于SMA20超过5%，认为是下跌趋势
             BigDecimal priceRatio = price.subtract(sma20).divide(sma20, 4, RoundingMode.HALF_UP);
+
             if (priceRatio.compareTo(trendThreshold) < 0) {
                 log.debug("检测到下跌趋势，价格低于SMA20 {}%", priceRatio.multiply(BigDecimal.valueOf(100)));
                 return false;
