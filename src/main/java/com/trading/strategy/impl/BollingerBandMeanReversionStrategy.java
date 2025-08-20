@@ -1,19 +1,20 @@
 package com.trading.strategy.impl;
 
-import com.trading.domain.entity.MarketData;
-import com.trading.domain.entity.Order;
-import com.trading.domain.entity.Position;
-import com.trading.domain.vo.TechnicalIndicators;
-import com.trading.strategy.TradingStrategy;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
-
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import org.springframework.stereotype.Component;
+
+import com.trading.domain.entity.MarketData;
+import com.trading.domain.entity.Order;
+import com.trading.domain.entity.Position;
+import com.trading.domain.vo.TechnicalIndicators;
+
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 布林带均值回归策略

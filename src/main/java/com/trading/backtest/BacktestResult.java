@@ -20,7 +20,7 @@ import java.util.Map;
  * 包含所有回测性能指标和详细数据
  */
 @Data
-@Builder
+@Builder(toBuilder = true)
 @NoArgsConstructor
 @AllArgsConstructor
 public class BacktestResult {
@@ -258,6 +258,11 @@ public class BacktestResult {
     @JsonProperty("trades")
     @Builder.Default
     private List<Order> trades = new ArrayList<>();
+
+    /**
+     * 交易历史（用于测试和详细分析）
+     */
+    private List<Order> tradeHistory = new ArrayList<>();
     
     /**
      * 性能指标详细数据

@@ -1,5 +1,6 @@
 package com.trading.backtest;
 
+import com.trading.common.utils.BigDecimalUtils;
 import com.trading.domain.entity.MarketData;
 import com.trading.domain.entity.Order;
 import com.trading.domain.enums.OrderSide;
@@ -170,7 +171,17 @@ public class BacktestEngine {
     }
 
     private TechnicalIndicators calculateIndicators(List<MarketData> data) {
-        return new TechnicalIndicators();
+        if (data.isEmpty()) {
+            return new TechnicalIndicators();
+        }
+        try {
+            String symbol = data.get(0).getSymbol();
+            // 调用正确的方法，直接传递数据列表
+            return technicalAnalysisService.calculateIndicatorsFromData(symbol, data);
+        } catch (Exception e) {
+            log.error("技术指标计算失败，返回空指标", e);
+            return new TechnicalIndicators();
+        }
     }
 
     private BacktestResult calculateResult(PortfolioManager portfolioManager, BacktestRequest request) {
@@ -179,23 +190,79 @@ public class BacktestEngine {
         result.setSymbol(request.getSymbol());
         result.setStartTime(request.getStartTime());
         result.setEndTime(request.getEndTime());
-        result.setInitialCapital(portfolioManager.getInitialCash());
-        BigDecimal finalEquity = portfolioManager.calculateTotalEquity();
+        result.setInitialCapital(BigDecimalUtils.scale(portfolioManager.getInitialCash()));
+
+        // 最终权益
+        BigDecimal finalEquity = BigDecimalUtils.scale(portfolioManager.calculateTotalEquity());
         result.setFinalEquity(finalEquity);
+
+        // 总收益与年化
         BigDecimal totalReturn = finalEquity.subtract(portfolioManager.getInitialCash());
-        result.setTotalReturn(totalReturn);
+        result.setTotalReturn(BigDecimalUtils.scale(totalReturn));
+
         if (portfolioManager.getInitialCash().compareTo(BigDecimal.ZERO) > 0) {
             BigDecimal returnRate = totalReturn.divide(portfolioManager.getInitialCash(), 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
-            result.setReturnRate(returnRate);
+            result.setReturnRate(BigDecimalUtils.scale(returnRate));
+
+            long days = java.time.temporal.ChronoUnit.DAYS.between(request.getStartTime(), request.getEndTime());
+            if (days > 0) {
+                double annualizationFactor = 365.0 / days;
+                double totalReturnRatio = finalEquity.divide(portfolioManager.getInitialCash(), 8, RoundingMode.HALF_UP).doubleValue();
+                double annualizedReturnRatio = Math.pow(totalReturnRatio, annualizationFactor) - 1;
+                result.setAnnualizedReturn(BigDecimalUtils.scale(BigDecimal.valueOf(annualizedReturnRatio * 100)));
+            } else {
+                result.setAnnualizedReturn(BigDecimal.ZERO);
+            }
+        } else {
+            result.setReturnRate(BigDecimal.ZERO);
+            result.setAnnualizedReturn(BigDecimal.ZERO);
         }
-        result.setTotalTrades((int) portfolioManager.getTradeHistory().size());
-        List<BigDecimal> equityCurve = portfolioManager.getDailyEquitySnapshots().stream()
-                .map(PortfolioManager.EquitySnapshot::totalValue)
-                .collect(Collectors.toList());
+
+        // 交易统计
+        List<Order> trades = portfolioManager.getTradeHistory();
+        result.setTotalTrades(trades.size());
+        result.setTradeHistory(trades);
+
+        List<Order> closingTrades = trades.stream().filter(o -> o.getSide() == OrderSide.SELL && o.getRealizedPnl() != null).collect(Collectors.toList());
+        int winningTrades = (int) closingTrades.stream().filter(o -> o.getRealizedPnl().compareTo(BigDecimal.ZERO) > 0).count();
+        int losingTrades = closingTrades.size() - winningTrades;
+
+        result.setWinningTrades(winningTrades);
+        result.setLosingTrades(losingTrades);
+
+        if (!closingTrades.isEmpty()) {
+            BigDecimal winRate = BigDecimal.valueOf(winningTrades).divide(BigDecimal.valueOf(closingTrades.size()), 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
+            result.setWinRate(BigDecimalUtils.scale(winRate));
+
+            BigDecimal grossProfit = closingTrades.stream().filter(o -> o.getRealizedPnl().compareTo(BigDecimal.ZERO) > 0).map(Order::getRealizedPnl).reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal grossLoss = closingTrades.stream().filter(o -> o.getRealizedPnl().compareTo(BigDecimal.ZERO) <= 0).map(Order::getRealizedPnl).reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            result.setAvgWin(winningTrades > 0 ? BigDecimalUtils.scale(grossProfit.divide(BigDecimal.valueOf(winningTrades), RoundingMode.HALF_UP)) : BigDecimal.ZERO);
+            result.setAvgLoss(losingTrades > 0 ? BigDecimalUtils.scale(grossLoss.divide(BigDecimal.valueOf(losingTrades), RoundingMode.HALF_UP)) : BigDecimal.ZERO);
+
+            if (grossLoss.abs().compareTo(BigDecimal.ZERO) > 0) {
+                result.setProfitFactor(BigDecimalUtils.scale(grossProfit.divide(grossLoss.abs(), RoundingMode.HALF_UP)));
+            } else {
+                result.setProfitFactor(BigDecimal.valueOf(Double.POSITIVE_INFINITY));
+            }
+        } else {
+            result.setWinRate(BigDecimal.ZERO);
+            result.setAvgWin(BigDecimal.ZERO);
+            result.setAvgLoss(BigDecimal.ZERO);
+            result.setProfitFactor(BigDecimal.ZERO);
+        }
+
+        // 权益曲线与风险指标
+        List<BigDecimal> equityCurve = portfolioManager.getDailyEquitySnapshots().stream().map(PortfolioManager.EquitySnapshot::totalValue).collect(Collectors.toList());
         result.setEquityCurve(equityCurve);
-        result.setMaxDrawdown(calculateMaxDrawdown(equityCurve));
-        result.setSharpeRatio(calculateSharpeRatio(equityCurve));
-        log.info("回测完成: 最终权益 {}, 收益率 {:.2f}%", finalEquity, result.getReturnRate());
+        result.setMaxDrawdown(BigDecimalUtils.scale(calculateMaxDrawdown(equityCurve)));
+        result.setSharpeRatio(BigDecimalUtils.scale(calculateSharpeRatio(equityCurve)));
+        result.setSortinoRatio(BigDecimal.ZERO);
+        result.setCalmarRatio(BigDecimal.ZERO);
+
+        String formattedFinalEquity = String.format("%.2f", result.getFinalEquity());
+        String formattedReturnRate = String.format("%.2f", result.getReturnRate());
+        log.info("回测完成: 最终权益 {}, 收益率 {}%", formattedFinalEquity, formattedReturnRate);
         return result;
     }
 

@@ -5,6 +5,8 @@ import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import com.trading.common.utils.BigDecimalUtils;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Set;
@@ -45,10 +47,10 @@ public class HKStockCommissionCalculator {
             return CommissionBreakdown.builder().build(); // 返回空对象
         }
 
-        BigDecimal tradeValue = price.multiply(BigDecimal.valueOf(quantity)).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal tradeValue = price.multiply(BigDecimal.valueOf(quantity));
 
         // 1. 佣金
-        BigDecimal commission = tradeValue.multiply(COMMISSION_RATE);
+        BigDecimal commission = BigDecimalUtils.scale(tradeValue.multiply(COMMISSION_RATE));
         if (commission.compareTo(MIN_COMMISSION) < 0) {
             commission = MIN_COMMISSION;
         }
@@ -57,30 +59,29 @@ public class HKStockCommissionCalculator {
         BigDecimal platformFee = PLATFORM_FEE;
 
         // 3. 交收费
-        BigDecimal settlementFee = tradeValue.multiply(SETTLEMENT_FEE_RATE);
+        BigDecimal settlementFee = BigDecimalUtils.scale(tradeValue.multiply(SETTLEMENT_FEE_RATE));
 
-        // 4. 印花税
+        // 4. 印花税 (特殊规则，不使用工具类)
         BigDecimal stampDuty = BigDecimal.ZERO;
-        if (!isETF(symbol)) { // ETF豁免印花税
+        if (!isETF(symbol)) { 
             stampDuty = tradeValue.multiply(STAMP_DUTY_RATE);
-            // 不足1港元作1港元计，即向上取整到元
             stampDuty = stampDuty.setScale(0, RoundingMode.CEILING);
         }
 
         // 5. 交易费
-        BigDecimal tradingFee = tradeValue.multiply(TRADING_FEE_RATE);
+        BigDecimal tradingFee = BigDecimalUtils.scale(tradeValue.multiply(TRADING_FEE_RATE));
         if (tradingFee.compareTo(MIN_TRADING_FEE) < 0) {
             tradingFee = MIN_TRADING_FEE;
         }
 
         // 6. 证监会征费
-        BigDecimal sfcLevy = tradeValue.multiply(SFC_LEVY_RATE);
+        BigDecimal sfcLevy = BigDecimalUtils.scale(tradeValue.multiply(SFC_LEVY_RATE));
         if (sfcLevy.compareTo(MIN_SFC_LEVY) < 0) {
             sfcLevy = MIN_SFC_LEVY;
         }
 
         // 7. 财汇局征费
-        BigDecimal frcFee = tradeValue.multiply(FRC_LEVY_RATE);
+        BigDecimal frcFee = BigDecimalUtils.scale(tradeValue.multiply(FRC_LEVY_RATE));
 
         // 总成本
         BigDecimal totalCost = commission.add(platformFee).add(settlementFee).add(stampDuty).add(tradingFee).add(sfcLevy).add(frcFee);

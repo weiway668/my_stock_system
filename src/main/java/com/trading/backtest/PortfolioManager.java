@@ -1,5 +1,6 @@
 package com.trading.backtest;
 
+import com.trading.common.utils.BigDecimalUtils;
 import com.trading.domain.entity.Order;
 import com.trading.domain.enums.OrderSide;
 import lombok.Getter;
@@ -58,10 +59,12 @@ public class PortfolioManager {
     private void executeBuy(Order buyOrder) {
         BigDecimal idealPrice = buyOrder.getPrice();
         BigDecimal executionPrice = idealPrice.add(idealPrice.multiply(this.slippageRate));
+        long quantity = buyOrder.getQuantity();
 
-        HKStockCommissionCalculator.CommissionBreakdown costs = commissionCalculator.calculateCommission(executionPrice, buyOrder.getQuantity(), buyOrder.getSymbol(), false);
-        BigDecimal grossValue = executionPrice.multiply(BigDecimal.valueOf(buyOrder.getQuantity()));
-        BigDecimal totalCharge = grossValue.add(costs.getTotalCost());
+        HKStockCommissionCalculator.CommissionBreakdown costs = commissionCalculator.calculateCommission(executionPrice, quantity, buyOrder.getSymbol(), false);
+        BigDecimal totalCost = costs.getTotalCost();
+        BigDecimal grossValue = executionPrice.multiply(BigDecimal.valueOf(quantity));
+        BigDecimal totalCharge = grossValue.add(totalCost);
 
         if (cash.compareTo(totalCharge) < 0) {
             log.warn("现金不足(含费用)，无法买入: 需要 {}, 可用 {}", totalCharge, cash);
@@ -70,12 +73,12 @@ public class PortfolioManager {
 
         cash = cash.subtract(totalCharge);
         Position currentPosition = positions.getOrDefault(buyOrder.getSymbol(), new Position(buyOrder.getSymbol(), 0, BigDecimal.ZERO, BigDecimal.ZERO));
-        long newQuantity = currentPosition.quantity() + buyOrder.getQuantity();
+        long newQuantity = currentPosition.quantity() + quantity;
         BigDecimal newTotalCost = currentPosition.averageCost().multiply(BigDecimal.valueOf(currentPosition.quantity())).add(totalCharge);
-        BigDecimal newAverageCost = newTotalCost.divide(BigDecimal.valueOf(newQuantity), 4, RoundingMode.HALF_UP);
+        BigDecimal newAverageCost = newTotalCost.divide(BigDecimal.valueOf(newQuantity), 4, RoundingMode.HALF_UP); // 成本保留4位小数以提高精度
 
         positions.put(buyOrder.getSymbol(), new Position(buyOrder.getSymbol(), newQuantity, newAverageCost, BigDecimal.ZERO));
-        updateAndRecordOrder(buyOrder, executionPrice, costs.getTotalCost());
+        updateAndRecordOrder(buyOrder, executionPrice, totalCost);
     }
 
     private void executeSell(Order sellOrder) {
@@ -87,24 +90,38 @@ public class PortfolioManager {
 
         BigDecimal idealPrice = sellOrder.getPrice();
         BigDecimal executionPrice = idealPrice.subtract(idealPrice.multiply(this.slippageRate));
+        long quantity = sellOrder.getQuantity();
 
-        HKStockCommissionCalculator.CommissionBreakdown costs = commissionCalculator.calculateCommission(executionPrice, sellOrder.getQuantity(), sellOrder.getSymbol(), true);
-        BigDecimal grossValue = executionPrice.multiply(BigDecimal.valueOf(sellOrder.getQuantity()));
-        BigDecimal netProceeds = grossValue.subtract(costs.getTotalCost());
+        HKStockCommissionCalculator.CommissionBreakdown costs = commissionCalculator.calculateCommission(executionPrice, quantity, sellOrder.getSymbol(), true);
+        BigDecimal totalCost = costs.getTotalCost();
+        BigDecimal grossValue = executionPrice.multiply(BigDecimal.valueOf(quantity));
+        BigDecimal netProceeds = grossValue.subtract(totalCost);
+
+        // 计算已实现盈亏
+        BigDecimal realizedPnl = executionPrice.multiply(BigDecimal.valueOf(quantity))
+                .subtract(currentPosition.averageCost().multiply(BigDecimal.valueOf(quantity)))
+                .subtract(totalCost);
 
         cash = cash.add(netProceeds);
-        long newQuantity = currentPosition.quantity() - sellOrder.getQuantity();
+        long newQuantity = currentPosition.quantity() - quantity;
         if (newQuantity == 0) {
             positions.remove(sellOrder.getSymbol());
         } else {
             positions.put(sellOrder.getSymbol(), new Position(sellOrder.getSymbol(), newQuantity, currentPosition.averageCost(), BigDecimal.ZERO));
         }
-        updateAndRecordOrder(sellOrder, executionPrice, costs.getTotalCost());
+        updateAndRecordOrder(sellOrder, executionPrice, totalCost, realizedPnl);
     }
 
     private void updateAndRecordOrder(Order order, BigDecimal executedPrice, BigDecimal commission) {
-        order.setExecutedPrice(executedPrice);
-        order.setCommission(commission);
+        updateAndRecordOrder(order, executedPrice, commission, null);
+    }
+
+    private void updateAndRecordOrder(Order order, BigDecimal executedPrice, BigDecimal commission, BigDecimal realizedPnl) {
+        order.setExecutedPrice(BigDecimalUtils.scale(executedPrice));
+        order.setCommission(BigDecimalUtils.scale(commission));
+        if (realizedPnl != null) {
+            order.setRealizedPnl(BigDecimalUtils.scale(realizedPnl));
+        }
         this.tradeHistory.add(order);
     }
 
@@ -122,7 +139,7 @@ public class PortfolioManager {
     public void recordDailyEquity(LocalDate currentDate) {
         BigDecimal totalEquity = calculateTotalEquity();
         dailyEquitySnapshots.add(new EquitySnapshot(currentDate, totalEquity));
-        log.debug("记录每日权益快照: 日期 {}, 总权益 {}", currentDate, totalEquity);
+        log.debug("记录每日权益快照: 日期 {}, 总权益 {}", currentDate, BigDecimalUtils.scale(totalEquity));
     }
 
     public BigDecimal calculateTotalEquity() {
