@@ -1,18 +1,16 @@
 package com.trading.backtest;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.LocalDate;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
-
+import com.trading.common.utils.BigDecimalUtils;
+import com.trading.domain.entity.MarketData;
+import com.trading.domain.entity.Order;
+import com.trading.domain.enums.OrderSide;
+import com.trading.domain.enums.OrderStatus;
+import com.trading.domain.enums.OrderType;
+import com.trading.domain.vo.TechnicalIndicators;
+import com.trading.service.MarketDataService;
+import com.trading.strategy.TradingStrategy;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.ta4j.core.BarSeries;
 import org.ta4j.core.BaseBarSeries;
@@ -35,18 +33,18 @@ import org.ta4j.core.indicators.statistics.StandardDeviationIndicator;
 import org.ta4j.core.num.DecimalNum;
 import org.ta4j.core.num.Num;
 
-import com.trading.common.utils.BigDecimalUtils;
-import com.trading.domain.entity.MarketData;
-import com.trading.domain.entity.Order;
-import com.trading.domain.enums.OrderSide;
-import com.trading.domain.enums.OrderStatus;
-import com.trading.domain.enums.OrderType;
-import com.trading.domain.vo.TechnicalIndicators;
-import com.trading.service.MarketDataService;
-import com.trading.strategy.TradingStrategy;
-
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 /**
  * 回测引擎 (已重构以支持限价单和高性能指标计算)
