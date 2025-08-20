@@ -1,36 +1,5 @@
 package com.trading.backtest;
 
-import com.trading.common.utils.BigDecimalUtils;
-import com.trading.domain.entity.MarketData;
-import com.trading.domain.entity.Order;
-import com.trading.domain.enums.OrderSide;
-import com.trading.domain.enums.OrderStatus;
-import com.trading.domain.enums.OrderType;
-import com.trading.domain.vo.TechnicalIndicators;
-import com.trading.service.MarketDataService;
-import com.trading.strategy.TradingStrategy;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.ta4j.core.Bar;
-import org.ta4j.core.BarSeries;
-import org.ta4j.core.BaseBarSeries;
-import org.ta4j.core.indicators.*;
-import org.ta4j.core.indicators.adx.ADXIndicator;
-import org.ta4j.core.indicators.adx.MinusDIIndicator;
-import org.ta4j.core.indicators.adx.PlusDIIndicator;
-import org.ta4j.core.indicators.bollinger.BollingerBandsLowerIndicator;
-import org.ta4j.core.indicators.bollinger.BollingerBandsMiddleIndicator;
-import org.ta4j.core.indicators.bollinger.BollingerBandsUpperIndicator;
-import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
-import org.ta4j.core.indicators.helpers.VolumeIndicator;
-import org.ta4j.core.indicators.statistics.StandardDeviationIndicator;
-import org.ta4j.core.indicators.volume.MoneyFlowIndexIndicator;
-import org.ta4j.core.indicators.volume.OnBalanceVolumeIndicator;
-import org.ta4j.core.indicators.volume.VWAPIndicator;
-import org.ta4j.core.num.DecimalNum;
-import org.ta4j.core.num.Num;
-
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -44,6 +13,46 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+
+import org.springframework.stereotype.Service;
+import org.ta4j.core.Bar;
+import org.ta4j.core.BarSeries;
+import org.ta4j.core.BaseBarSeries;
+import org.ta4j.core.indicators.ATRIndicator;
+import org.ta4j.core.indicators.CCIIndicator;
+import org.ta4j.core.indicators.EMAIndicator;
+import org.ta4j.core.indicators.MACDIndicator;
+import org.ta4j.core.indicators.ParabolicSarIndicator;
+import org.ta4j.core.indicators.RSIIndicator;
+import org.ta4j.core.indicators.SMAIndicator;
+import org.ta4j.core.indicators.StochasticOscillatorDIndicator;
+import org.ta4j.core.indicators.StochasticOscillatorKIndicator;
+import org.ta4j.core.indicators.WilliamsRIndicator;
+import org.ta4j.core.indicators.adx.ADXIndicator;
+import org.ta4j.core.indicators.adx.MinusDIIndicator;
+import org.ta4j.core.indicators.adx.PlusDIIndicator;
+import org.ta4j.core.indicators.bollinger.BollingerBandsLowerIndicator;
+import org.ta4j.core.indicators.bollinger.BollingerBandsMiddleIndicator;
+import org.ta4j.core.indicators.bollinger.BollingerBandsUpperIndicator;
+import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
+import org.ta4j.core.indicators.helpers.VolumeIndicator;
+import org.ta4j.core.indicators.statistics.StandardDeviationIndicator;
+import org.ta4j.core.indicators.volume.MoneyFlowIndexIndicator;
+import org.ta4j.core.indicators.volume.OnBalanceVolumeIndicator;
+import org.ta4j.core.indicators.volume.VWAPIndicator;
+import org.ta4j.core.num.Num;
+import com.trading.common.utils.BigDecimalUtils;
+import com.trading.domain.entity.MarketData;
+import com.trading.domain.entity.Order;
+import com.trading.domain.enums.OrderSide;
+import com.trading.domain.enums.OrderStatus;
+import com.trading.domain.enums.OrderType;
+import com.trading.domain.vo.TechnicalIndicators;
+import com.trading.service.MarketDataService;
+import com.trading.strategy.TradingStrategy;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Service
@@ -98,10 +107,16 @@ public class BacktestEngine {
                     MarketData currentData = historicalDataWithWarmup.get(i);
                     checkForTriggeredOrders(pendingOrders, currentData, portfolioManager);
                     portfolioManager.updatePositionsMarketValue(Map.of(currentData.getSymbol(), currentData.getClose()));
-                    TechnicalIndicators indicators = getIndicatorsForIndex(precalculatedIndicators, i);
+
+                    int lookback = request.getIndicatorHistoryLookback();
+                    List<TechnicalIndicators> indicatorHistory = new ArrayList<>();
+                    for (int j = Math.max(0, i - lookback + 1); j <= i; j++) {
+                        indicatorHistory.add(getIndicatorsForIndex(precalculatedIndicators, j));
+                    }
+
                     List<com.trading.domain.entity.Position> domainPositions = portfolioManager.getPositions().values().stream()
                             .map(this::convertToDomainPosition).collect(Collectors.toList());
-                    TradingStrategy.TradingSignal signal = request.getStrategy().generateSignal(currentData, indicators, domainPositions);
+                    TradingStrategy.TradingSignal signal = request.getStrategy().generateSignal(currentData, indicatorHistory, domainPositions);
 
                     if (signal != null && signal.getType() != TradingStrategy.TradingSignal.SignalType.NO_ACTION) {
                         executeSignal(portfolioManager, pendingOrders, signal, currentData);
@@ -125,7 +140,7 @@ public class BacktestEngine {
             }
         });
     }
-
+    
     private int findStartIndex(List<MarketData> data, LocalDateTime targetStartTime) {
         for (int i = 0; i < data.size(); i++) {
             if (!data.get(i).getTimestamp().isBefore(targetStartTime)) {

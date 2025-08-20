@@ -50,7 +50,7 @@ public interface TradingStrategy {
      */
     TradingSignal generateSignal(
         MarketData marketData, 
-        TechnicalIndicators indicators,
+        List<TechnicalIndicators> indicatorHistory,
         List<Position> positions
     );
     

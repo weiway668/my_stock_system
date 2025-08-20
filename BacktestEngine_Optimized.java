@@ -98,10 +98,16 @@ public class BacktestEngine {
                     MarketData currentData = historicalDataWithWarmup.get(i);
                     checkForTriggeredOrders(pendingOrders, currentData, portfolioManager);
                     portfolioManager.updatePositionsMarketValue(Map.of(currentData.getSymbol(), currentData.getClose()));
-                    TechnicalIndicators indicators = getIndicatorsForIndex(precalculatedIndicators, i);
+
+                    int lookback = request.getIndicatorHistoryLookback();
+                    List<TechnicalIndicators> indicatorHistory = new ArrayList<>();
+                    for (int j = Math.max(0, i - lookback + 1); j <= i; j++) {
+                        indicatorHistory.add(getIndicatorsForIndex(precalculatedIndicators, j));
+                    }
+
                     List<com.trading.domain.entity.Position> domainPositions = portfolioManager.getPositions().values().stream()
                             .map(this::convertToDomainPosition).collect(Collectors.toList());
-                    TradingStrategy.TradingSignal signal = request.getStrategy().generateSignal(currentData, indicators, domainPositions);
+                    TradingStrategy.TradingSignal signal = request.getStrategy().generateSignal(currentData, indicatorHistory, domainPositions);
 
                     if (signal != null && signal.getType() != TradingStrategy.TradingSignal.SignalType.NO_ACTION) {
                         executeSignal(portfolioManager, pendingOrders, signal, currentData);
@@ -125,7 +131,7 @@ public class BacktestEngine {
             }
         });
     }
-
+    
     private int findStartIndex(List<MarketData> data, LocalDateTime targetStartTime) {
         for (int i = 0; i < data.size(); i++) {
             if (!data.get(i).getTimestamp().isBefore(targetStartTime)) {
@@ -166,6 +172,7 @@ public class BacktestEngine {
         BollingerBandsMiddleIndicator bbMiddle = new BollingerBandsMiddleIndicator(sma20);
         StandardDeviationIndicator stdDev = new StandardDeviationIndicator(closePrice, 20);
         return new PrecalculatedIndicators(
+                series,
                 new BollingerBandsUpperIndicator(bbMiddle, stdDev), bbMiddle, new BollingerBandsLowerIndicator(bbMiddle, stdDev),
                 new MACDIndicator(closePrice, 12, 26), new EMAIndicator(new MACDIndicator(closePrice, 12, 26), 9),
                 new RSIIndicator(closePrice, 14), sma20, sma50, ema12, ema20, ema26, ema50,

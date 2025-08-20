@@ -126,6 +126,13 @@ public class BacktestRequest {
     @JsonProperty("generate_html_report")
     @Builder.Default
     private boolean generateHtmlReport = true;
+
+    /**
+     * 策略回看指标的历史周期长度
+     */
+    @JsonProperty("indicator_history_lookback")
+    @Builder.Default
+    private int indicatorHistoryLookback = 20;
     
     /**
      * 创建默认的港股回测请求

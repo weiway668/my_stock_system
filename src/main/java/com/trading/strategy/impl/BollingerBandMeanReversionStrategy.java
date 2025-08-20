@@ -6,6 +6,8 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
 
@@ -64,20 +66,25 @@ public class BollingerBandMeanReversionStrategy extends AbstractTradingStrategy 
     }
     
     @Override
-    public TradingSignal generateSignal(MarketData marketData, TechnicalIndicators indicators, List<Position> positions) {
+    public TradingSignal generateSignal(MarketData marketData, List<TechnicalIndicators> indicatorHistory, List<Position> positions) {
+        if (indicatorHistory == null || indicatorHistory.isEmpty()) {
+            return createNoActionSignal(marketData.getSymbol());
+        }
+        TechnicalIndicators indicators = indicatorHistory.get(indicatorHistory.size() - 1);
+
         try {
             // 检查是否有布林带指标
-            if (indicators.getBollingerUpper() == null || 
-                indicators.getBollingerMiddle() == null || 
-                indicators.getBollingerLower() == null) {
-                log.warn("布林带指标未计算，跳过信号生成");
+            if (indicators.getUpperBand() == null || 
+                indicators.getMiddleBand() == null || 
+                indicators.getLowerBand() == null) {
+                log.debug("布林带指标未计算，跳过信号生成");
                 return createNoActionSignal(marketData.getSymbol());
             }
             
             BigDecimal price = marketData.getClose();
-            BigDecimal upper = indicators.getBollingerUpper();
-            BigDecimal middle = indicators.getBollingerMiddle();
-            BigDecimal lower = indicators.getBollingerLower();
+            BigDecimal upper = indicators.getUpperBand();
+            BigDecimal middle = indicators.getMiddleBand();
+            BigDecimal lower = indicators.getLowerBand();
             
             // 计算价格在布林带中的位置得分
             int positionScore = calculateBBPositionScore(price, upper, middle, lower);
@@ -88,8 +95,8 @@ public class BollingerBandMeanReversionStrategy extends AbstractTradingStrategy 
             
             // 生成交易信号
             if (!hasPosition && positionScore >= minBuyScore.intValue()) {
-                // 买入条件：价格在下半区且得分足够高
-                if (confirmNotDowntrend(marketData, indicators)) {
+                // 买入条件：价格在下半区且得分足够高，并且趋势稳定
+                if (confirmNotDowntrend(indicatorHistory)) {
                     log.info("【{}】生成买入信号: symbol={}, price={}, score={}, lower={}, middle={}", getName(),
                         marketData.getSymbol(), price, positionScore, lower, middle);
                     
@@ -103,30 +110,18 @@ public class BollingerBandMeanReversionStrategy extends AbstractTradingStrategy 
                         .timestamp(LocalDateTime.now())
                         .build();
                 }
-            } else if (hasPosition && positionScore <= maxSellScore.intValue()) {
-                // 卖出条件：价格在上半区
-                log.info("【{}】生成卖出信号: symbol={}, price={}, score={}, upper={}, middle={}", getName(),
-                    marketData.getSymbol(), price, positionScore, upper, middle);
+            } else if (hasPosition && price.compareTo(upper) >= 0) {
+                // 卖出条件：价格触及或超过上轨
+                log.info("【{}】生成卖出信号: symbol={}, price={}, upper={}", getName(),
+                    marketData.getSymbol(), price, upper);
                 
                 return TradingSignal.builder()
                     .symbol(marketData.getSymbol())
                     .type(TradingSignal.SignalType.SELL)
                     .price(price)
-                    .confidence(calculateSignalStrength(positionScore, false))
-                    .reason(String.format("布林带高位止盈（位置分:%d，价格:%.2f，上轨:%.2f）", 
-                        positionScore, price, upper))
-                    .timestamp(LocalDateTime.now())
-                    .build();
-            }
-            
-            // 持有信号
-            if (hasPosition && positionScore > maxSellScore.intValue() && positionScore < 50) {
-                return TradingSignal.builder()
-                    .symbol(marketData.getSymbol())
-                    .type(TradingSignal.SignalType.HOLD)
-                    .price(price)
-                    .confidence(BigDecimal.valueOf(0.5))
-                    .reason(String.format("持有（位置分:%d）", positionScore))
+                    .confidence(BigDecimal.ONE) // 触及上轨，强烈卖出
+                    .reason(String.format("布林带上轨止盈（价格:%.2f，上轨:%.2f）", 
+                        price, upper))
                     .timestamp(LocalDateTime.now())
                     .build();
             }
@@ -137,6 +132,50 @@ public class BollingerBandMeanReversionStrategy extends AbstractTradingStrategy 
             log.error("生成交易信号失败", e);
             return createNoActionSignal(marketData.getSymbol());
         }
+    }
+    
+
+    /**
+     * 使用布林带宽度确认市场未进入单边趋势
+     */
+    private boolean confirmNotDowntrend(List<TechnicalIndicators> indicatorHistory) {
+        int lookbackPeriod = 10;
+        if (indicatorHistory.size() < lookbackPeriod) {
+            return true; // 数据不足，暂时放行
+        }
+
+        TechnicalIndicators currentIndicators = indicatorHistory.get(indicatorHistory.size() - 1);
+        BigDecimal currentBandwidth = currentIndicators.getBandwidth();
+
+        if (currentBandwidth == null) {
+            log.warn("当前布林带宽度为空，无法判断趋势");
+            return false; // 指标缺失，拒绝交易
+        }
+
+        // 计算历史平均带宽
+        List<BigDecimal> recentBandwidths = indicatorHistory.stream()
+                .skip(indicatorHistory.size() - lookbackPeriod)
+                .map(TechnicalIndicators::getBandwidth)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        
+        if(recentBandwidths.size() < lookbackPeriod / 2) {
+            return true; // 有效历史数据过少，暂时放行
+        }
+
+        BigDecimal avgBandwidth = recentBandwidths.stream()
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .divide(BigDecimal.valueOf(recentBandwidths.size()), 4, RoundingMode.HALF_UP);
+
+        // 如果当前带宽是历史平均的1.5倍以上，则认为趋势可能开启，风险较高
+        BigDecimal expansionThreshold = new BigDecimal("1.5");
+        if (currentBandwidth.compareTo(avgBandwidth.multiply(expansionThreshold)) > 0) {
+            log.debug("布林带宽度急剧放大，可能进入趋势行情，跳过本次均值回归买入。当前带宽: {}, 平均带宽: {}", 
+                currentBandwidth, avgBandwidth);
+            return false;
+        }
+
+        return true;
     }
     
     /**

@@ -62,26 +62,22 @@ public class MACDTradingStrategy extends AbstractTradingStrategy {
     @Override
     public TradingSignal generateSignal(
             MarketData marketData, 
-            TechnicalIndicators indicators,
+            List<TechnicalIndicators> indicatorHistory,
             List<Position> positions) {
         
+        if (indicatorHistory == null || indicatorHistory.size() < 2) {
+            return TradingSignal.builder().type(TradingSignal.SignalType.NO_ACTION).reason("等待足够的指标历史数据").build();
+        }
+
+        TechnicalIndicators indicators = indicatorHistory.get(indicatorHistory.size() - 1); // 当前指标
+        TechnicalIndicators previousIndicators = indicatorHistory.get(indicatorHistory.size() - 2); // 前一期指标
+
         if (!isEnabled()) {
             return TradingSignal.builder()
                 .type(TradingSignal.SignalType.NO_ACTION)
                 .symbol(marketData.getSymbol())
                 .timestamp(LocalDateTime.now())
                 .reason("策略未启用")
-                .build();
-        }
-        
-        // 检查是否有足够的历史数据
-        if (previousIndicators == null || indicators == null) {
-            previousIndicators = indicators;
-            return TradingSignal.builder()
-                .type(TradingSignal.SignalType.NO_ACTION)
-                .symbol(marketData.getSymbol())
-                .timestamp(LocalDateTime.now())
-                .reason("等待历史数据")
                 .build();
         }
         
