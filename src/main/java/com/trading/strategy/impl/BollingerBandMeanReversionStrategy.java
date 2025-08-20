@@ -70,7 +70,7 @@ public class BollingerBandMeanReversionStrategy extends AbstractTradingStrategy 
             if (indicators.getBollingerUpper() == null || 
                 indicators.getBollingerMiddle() == null || 
                 indicators.getBollingerLower() == null) {
-                log.debug("布林带指标未计算，跳过信号生成");
+                log.warn("布林带指标未计算，跳过信号生成");
                 return createNoActionSignal(marketData.getSymbol());
             }
             
@@ -90,7 +90,7 @@ public class BollingerBandMeanReversionStrategy extends AbstractTradingStrategy 
             if (!hasPosition && positionScore >= minBuyScore.intValue()) {
                 // 买入条件：价格在下半区且得分足够高
                 if (confirmNotDowntrend(marketData, indicators)) {
-                    log.info("生成买入信号: symbol={}, price={}, score={}, lower={}, middle={}", 
+                    log.info("【{}】生成买入信号: symbol={}, price={}, score={}, lower={}, middle={}", getName(),
                         marketData.getSymbol(), price, positionScore, lower, middle);
                     
                     return TradingSignal.builder()
@@ -105,7 +105,7 @@ public class BollingerBandMeanReversionStrategy extends AbstractTradingStrategy 
                 }
             } else if (hasPosition && positionScore <= maxSellScore.intValue()) {
                 // 卖出条件：价格在上半区
-                log.info("生成卖出信号: symbol={}, price={}, score={}, upper={}, middle={}", 
+                log.info("【{}】生成卖出信号: symbol={}, price={}, score={}, upper={}, middle={}", getName(),
                     marketData.getSymbol(), price, positionScore, upper, middle);
                 
                 return TradingSignal.builder()
