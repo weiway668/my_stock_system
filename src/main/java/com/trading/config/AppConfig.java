@@ -1,5 +1,6 @@
 package com.trading.config;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -35,6 +36,8 @@ public class AppConfig {
         mapper.registerModule(new JavaTimeModule());
         // 为了更好的可读性，不将日期序列化为时间戳
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        // 在反序列化时，忽略在JSON中存在但Java对象中不存在的属性
+        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         return mapper;
     }
 }

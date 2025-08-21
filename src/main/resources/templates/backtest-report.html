@@ -21,6 +21,14 @@
 <div class="container mt-4">
     <h1 class="mb-4">回测报告</h1>
 
+    <!-- 前端调试信息 -->
+    <div th:if="${klineDates != null}" class="alert alert-info">
+        <strong>调试信息:</strong>
+        K线数据点: <span th:text="${#lists.size(klineDates)}"></span> | 
+        买点: <span th:text="${#lists.size(buyPoints)}"></span> | 
+        卖点: <span th:text="${#lists.size(sellPoints)}"></span>
+    </div>
+
     <!-- 报告元数据 -->
     <div class="card mb-4">
         <div class="card-header">报告详情</div>
@@ -38,15 +46,88 @@
     </div>
 
     <!-- 关键指标汇总 -->
-    <div class="row">
-        <!-- 在这里动态生成关键指标卡片 -->
+    <div class="row text-center mb-4">
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="kpi-value" th:classappend="${report.annualizedReturn > 0 ? 'positive' : 'negative'}" th:text="${#numbers.formatPercent(report.annualizedReturn, 1, 2)}"></div>
+                    <div class="kpi-label">年化收益率</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="kpi-value negative" th:text="${#numbers.formatPercent(report.maxDrawdown, 1, 2)}"></div>
+                    <div class="kpi-label">最大回撤</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="kpi-value" th:classappend="${report.sharpeRatio > 0 ? 'positive' : 'negative'}" th:text="${#numbers.formatDecimal(report.sharpeRatio, 1, 2)}"></div>
+                    <div class="kpi-label">夏普比率</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="kpi-value" th:classappend="${report.winRate > 0.5 ? 'positive' : 'negative'}" th:text="${#numbers.formatPercent(report.winRate, 1, 2)}"></div>
+                    <div class="kpi-label">胜率</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="row text-center mb-4">
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="kpi-value" th:text="${report.totalTrades}"></div>
+                    <div class="kpi-label">总交易次数</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="kpi-value" th:classappend="${report.profitLossRatio > 1 ? 'positive' : 'negative'}" th:text="${#numbers.formatDecimal(report.profitLossRatio, 1, 2)}"></div>
+                    <div class="kpi-label">盈亏比</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="kpi-value" th:text="${#numbers.formatDecimal(report.initialCapital, 1, 0, 'COMMA')}"></div>
+                    <div class="kpi-label">初始资金</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card h-100">
+                <div class="card-body">
+                    <div class="kpi-value" th:classappend="${report.finalCapital > report.initialCapital ? 'positive' : 'negative'}" th:text="${#numbers.formatDecimal(report.finalCapital, 1, 0, 'COMMA')}"></div>
+                    <div class="kpi-label">最终权益</div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- 权益曲线图 -->
-    <div class="card">
+    <div class="card mb-4">
         <div class="card-header">权益曲线 (Equity Curve)</div>
         <div class="card-body">
             <div id="equityCurveChart" class="chart-container"></div>
+        </div>
+    </div>
+
+    <!-- K线与买卖点 -->
+    <div class="card mb-4">
+        <div class="card-header">价格与买卖点</div>
+        <div class="card-body">
+            <div id="candlestickChart" class="chart-container"></div>
         </div>
     </div>
 
@@ -90,9 +171,81 @@
     };
     equityCurveChart.setOption(equityOption);
 
+    // 2. K线与买卖点图
+    var candlestickChart = echarts.init(document.getElementById('candlestickChart'));
+    var klineDates = /*[[${klineDates}]]*/ [];
+    var ohlcValues = /*[[${ohlcValues}]]*/ [];
+    var buyPoints = /*[[${buyPoints}]]*/ [];
+    var sellPoints = /*[[${sellPoints}]]*/ [];
+
+    if (klineDates && klineDates.length > 0) {
+        var candlestickOption = {
+            tooltip: {
+                trigger: 'axis',
+                axisPointer: { type: 'cross' }
+            },
+            legend: {
+                data: ['K线', '买入', '卖出']
+            },
+            grid: {
+                left: '10%',
+                right: '10%',
+                bottom: '15%'
+            },
+            xAxis: {
+                type: 'category',
+                data: klineDates,
+                scale: true
+            },
+            yAxis: {
+                type: 'value',
+                scale: true,
+                splitArea: { show: true }
+            },
+            dataZoom: [
+                { type: 'inside', start: 50, end: 100 },
+                { show: true, type: 'slider', top: '90%', start: 50, end: 100 }
+            ],
+            series: [
+                {
+                    name: 'K线',
+                    type: 'candlestick',
+                    data: ohlcValues,
+                    itemStyle: {
+                        color: '#ef232a',
+                        color0: '#14b143',
+                        borderColor: '#ef232a',
+                        borderColor0: '#14b143'
+                    }
+                },
+                {
+                    name: '买入',
+                    type: 'scatter',
+                    symbol: 'arrow',
+                    symbolSize: 15,
+                    symbolRotate: 180,
+                    itemStyle: { color: '#dc3545' },
+                    data: buyPoints.map(p => ({ name: '买入', value: p, itemStyle: { color: '#dc3545' } }))
+                },
+                {
+                    name: '卖出',
+                    type: 'scatter',
+                    symbol: 'arrow',
+                    symbolSize: 15,
+                    itemStyle: { color: '#198754' },
+                    data: sellPoints.map(p => ({ name: '卖出', value: p, itemStyle: { color: '#198754' } }))
+                }
+            ]
+        };
+        candlestickChart.setOption(candlestickOption);
+    } else {
+        document.getElementById('candlestickChart').innerHTML = '<div class="alert alert-warning">无K线数据可供显示。</div>';
+    }
+
     // 窗口大小改变时重绘图表
     window.addEventListener('resize', function() {
         equityCurveChart.resize();
+        if (candlestickChart) candlestickChart.resize();
     });
 
     /*]]>*/

@@ -353,10 +353,10 @@ public class BacktestCommand extends AbstractCommand {
             result.getTotalReturn(), ANSI_RESET);
         System.out.printf("总收益率: %s%.2f%%%s%n",
             result.getReturnRate().compareTo(BigDecimal.ZERO) >= 0 ? ANSI_GREEN : ANSI_RED,
-            result.getReturnRate(), ANSI_RESET);
+            result.getReturnRate().multiply(BigDecimal.valueOf(100)), ANSI_RESET);
         System.out.printf("年化收益: %s%.2f%%%s%n",
             result.getAnnualizedReturn().compareTo(BigDecimal.ZERO) >= 0 ? ANSI_GREEN : ANSI_RED,
-            result.getAnnualizedReturn(), ANSI_RESET);
+            result.getAnnualizedReturn().multiply(BigDecimal.valueOf(100)), ANSI_RESET);
         
         // 添加未平仓情况的展示
         if (result.getFinalEquityMarkToMarket() != null && result.getUnrealizedPnl() != null) {

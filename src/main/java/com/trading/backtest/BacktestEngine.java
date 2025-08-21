@@ -140,11 +140,20 @@ public class BacktestEngine {
         // 模拟期末强制平仓
         liquidateRemainingPositions(portfolioManager, historicalData);
 
+        // 修正：在计算指标前，用平仓后的真实权益更新最后一条权益记录
+        List<PortfolioManager.EquitySnapshot> snapshots = portfolioManager.getDailyEquitySnapshots();
+        if (!snapshots.isEmpty()) {
+            BigDecimal finalEquity = portfolioManager.calculateTotalEquity();
+            PortfolioManager.EquitySnapshot lastSnapshot = snapshots.get(snapshots.size() - 1);
+            snapshots.set(snapshots.size() - 1, new PortfolioManager.EquitySnapshot(lastSnapshot.date(), finalEquity));
+            log.debug("用平仓后的最终权益 {} 更新了最后一条权益记录", finalEquity);
+        }
+
         // 使用服务计算性能指标
         final double RISK_FREE_RATE = 0.02; // 假设无风险利率为2%
         PerformanceAnalyticsService.PerformanceMetrics metrics = performanceAnalyticsService.calculatePerformance(
                 portfolioManager.getTradeHistory(),
-                portfolioManager.getDailyEquitySnapshots(),
+                snapshots, // 使用修正后的快照列表
                 RISK_FREE_RATE
         );
 

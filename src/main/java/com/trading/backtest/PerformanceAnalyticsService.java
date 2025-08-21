@@ -9,6 +9,9 @@ import java.math.RoundingMode;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.slf4j.LoggerFactory;
+import org.slf4j.Logger;
+
 /**
  * 性能分析服务
  * <p>
@@ -18,6 +21,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class PerformanceAnalyticsService {
+
+    private static final Logger log = LoggerFactory.getLogger(PerformanceAnalyticsService.class);
 
     private static final int TRADING_DAYS_PER_YEAR = 252;
     private static final int SCALE = 8; // 统一小数精度
@@ -150,11 +155,14 @@ public class PerformanceAnalyticsService {
     }
 
     private BigDecimal calculateAnnualizedReturn(BigDecimal cumulativeReturn, int days) {
+        log.debug("Calculating annualized return with cumulativeReturn={}, days={}", cumulativeReturn, days);
         if (days == 0) return BigDecimal.ZERO;
         double years = (double) days / TRADING_DAYS_PER_YEAR;
         if (years == 0) return BigDecimal.ZERO;
+
         // (1 + cumulativeReturn)^(1/years) - 1
         BigDecimal result = BigDecimal.valueOf(Math.pow(BigDecimal.ONE.add(cumulativeReturn).doubleValue(), 1.0 / years)).subtract(BigDecimal.ONE);
+        log.debug("Calculated annualized return (raw decimal): {}", result);
         return result.setScale(SCALE, ROUNDING_MODE);
     }
 
