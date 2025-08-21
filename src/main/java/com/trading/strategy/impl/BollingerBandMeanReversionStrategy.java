@@ -215,34 +215,7 @@ public class BollingerBandMeanReversionStrategy extends AbstractTradingStrategy 
         }
     }
     
-    /**
-     * 确认不是下跌趋势
-     */
-    private boolean confirmNotDowntrend(MarketData marketData, TechnicalIndicators indicators) {
-        // 使用SMA20作为趋势判断
-        if (indicators.getSma20() != null) {
-            BigDecimal price = marketData.getClose();
-            BigDecimal sma20 = indicators.getSma20();
-            
-            // 如果价格低于SMA20超过5%，认为是下跌趋势
-            BigDecimal priceRatio = price.subtract(sma20).divide(sma20, 4, RoundingMode.HALF_UP);
 
-            if (priceRatio.compareTo(trendThreshold) < 0) {
-                log.debug("检测到下跌趋势，价格低于SMA20 {}%", priceRatio.multiply(BigDecimal.valueOf(100)));
-                return false;
-            }
-        }
-        
-        // 检查RSI是否过低（超卖但可能继续下跌）
-        if (indicators.getRsi() != null && indicators.getRsi().compareTo(BigDecimal.valueOf(30)) < 0) {
-            log.debug("RSI过低: {}，可能继续下跌", indicators.getRsi());
-            // RSI过低时仍然可以买入，因为可能是超卖反弹机会
-            // return false;
-        }
-        
-        return true;
-    }
-    
     /**
      * 计算信号强度
      */
