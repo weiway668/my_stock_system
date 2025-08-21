@@ -34,6 +34,8 @@ import org.ta4j.core.indicators.volume.OnBalanceVolumeIndicator;
 import org.ta4j.core.indicators.volume.VWAPIndicator;
 import org.ta4j.core.num.Num;
 
+import org.springframework.transaction.annotation.Transactional;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
@@ -173,6 +175,7 @@ public class BacktestEngine {
         }
     }
 
+    @Transactional
     private void saveResultEntity(BacktestRequest request, PortfolioManager portfolioManager, PerformanceAnalyticsService.PerformanceMetrics metrics) {
         try {
             String dailyEquityJson = objectMapper.writeValueAsString(portfolioManager.getDailyEquitySnapshots());
