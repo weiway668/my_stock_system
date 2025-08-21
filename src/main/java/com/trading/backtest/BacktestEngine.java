@@ -1,12 +1,16 @@
 package com.trading.backtest;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.trading.common.utils.BigDecimalUtils;
+import com.trading.domain.entity.BacktestResultEntity;
 import com.trading.domain.entity.MarketData;
 import com.trading.domain.entity.Order;
 import com.trading.domain.enums.OrderSide;
 import com.trading.domain.enums.OrderStatus;
 import com.trading.domain.enums.OrderType;
 import com.trading.domain.vo.TechnicalIndicators;
+import com.trading.repository.BacktestResultRepository;
 import com.trading.service.MarketDataService;
 import com.trading.strategy.TradingStrategy;
 import lombok.RequiredArgsConstructor;
@@ -28,7 +32,6 @@ import org.ta4j.core.indicators.statistics.StandardDeviationIndicator;
 import org.ta4j.core.indicators.volume.MoneyFlowIndexIndicator;
 import org.ta4j.core.indicators.volume.OnBalanceVolumeIndicator;
 import org.ta4j.core.indicators.volume.VWAPIndicator;
-import org.ta4j.core.num.DecimalNum;
 import org.ta4j.core.num.Num;
 
 import java.math.BigDecimal;
@@ -37,13 +40,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
@@ -54,6 +51,9 @@ public class BacktestEngine {
 
     private final MarketDataService marketDataService;
     private final HKStockCommissionCalculator commissionCalculator;
+    private final PerformanceAnalyticsService performanceAnalyticsService;
+    private final BacktestResultRepository backtestResultRepository;
+    private final ObjectMapper objectMapper;
 
     private record PrecalculatedIndicators(
             BarSeries series,
@@ -125,7 +125,7 @@ public class BacktestEngine {
                     portfolioManager.recordDailyEquity(lastDate);
                 }
 
-                return calculateResult(portfolioManager, request, historicalDataWithWarmup);
+                return processAndSaveResults(portfolioManager, request, historicalDataWithWarmup);
 
             } catch (Exception e) {
                 log.error("回测执行失败", e);
@@ -133,6 +133,135 @@ public class BacktestEngine {
             }
         });
     }
+
+    private BacktestResult processAndSaveResults(PortfolioManager portfolioManager, BacktestRequest request, List<MarketData> historicalData) {
+        // 模拟期末强制平仓
+        liquidateRemainingPositions(portfolioManager, historicalData);
+
+        // 使用服务计算性能指标
+        final double RISK_FREE_RATE = 0.02; // 假设无风险利率为2%
+        PerformanceAnalyticsService.PerformanceMetrics metrics = performanceAnalyticsService.calculatePerformance(
+                portfolioManager.getTradeHistory(),
+                portfolioManager.getDailyEquitySnapshots(),
+                RISK_FREE_RATE
+        );
+
+        // 保存结果到数据库
+        saveResultEntity(request, portfolioManager, metrics);
+
+        // 创建并返回用于API响应的BacktestResult对象
+        return createBacktestResultResponse(request, portfolioManager, metrics);
+    }
+
+    private void liquidateRemainingPositions(PortfolioManager portfolioManager, List<MarketData> historicalData) {
+        if (!portfolioManager.getPositions().isEmpty() && !historicalData.isEmpty()) {
+            MarketData lastData = historicalData.get(historicalData.size() - 1);
+            Map<String, PortfolioManager.Position> positionsToLiquidate = new HashMap<>(portfolioManager.getPositions());
+            log.info("回测期末，对 {} 个剩余持仓进行模拟平仓...", positionsToLiquidate.size());
+
+            for (PortfolioManager.Position position : positionsToLiquidate.values()) {
+                Order liquidationOrder = Order.builder()
+                        .symbol(position.symbol())
+                        .side(OrderSide.SELL)
+                        .type(OrderType.MARKET)
+                        .quantity(position.quantity())
+                        .price(lastData.getClose())
+                        .createTime(lastData.getTimestamp())
+                        .build();
+                portfolioManager.processTransaction(liquidationOrder);
+            }
+        }
+    }
+
+    private void saveResultEntity(BacktestRequest request, PortfolioManager portfolioManager, PerformanceAnalyticsService.PerformanceMetrics metrics) {
+        try {
+            String dailyEquityJson = objectMapper.writeValueAsString(portfolioManager.getDailyEquitySnapshots());
+            String tradeHistoryJson = objectMapper.writeValueAsString(portfolioManager.getTradeHistory());
+
+            BacktestResultEntity entity = BacktestResultEntity.builder()
+                    .strategyName(request.getStrategyName())
+                    .strategyParameters("TODO: Serialize strategy params") // TODO
+                    .symbol(request.getSymbol())
+                    .startDate(request.getStartTime().toLocalDate())
+                    .endDate(request.getEndTime().toLocalDate())
+                    .backtestRunTime(LocalDateTime.now())
+                    .annualizedReturn(metrics.annualizedReturn())
+                    .cumulativeReturn(metrics.cumulativeReturn())
+                    .sharpeRatio(metrics.sharpeRatio())
+                    .sortinoRatio(metrics.sortinoRatio())
+                    .maxDrawdown(metrics.maxDrawdown())
+                    .calmarRatio(metrics.calmarRatio())
+                    .winRate(metrics.winRate())
+                    .profitLossRatio(metrics.profitLossRatio())
+                    .totalTrades(metrics.totalTrades())
+                    .winningTrades(metrics.winningTrades())
+                    .losingTrades(metrics.losingTrades())
+                    .averageProfit(metrics.averageProfit())
+                    .averageLoss(metrics.averageLoss())
+                    .initialCapital(portfolioManager.getInitialCash())
+                    .finalCapital(portfolioManager.getCash())
+                    .dailyEquityChartData(dailyEquityJson)
+                    .tradeHistoryData(tradeHistoryJson)
+                    .build();
+
+            backtestResultRepository.save(entity);
+            log.info("回测结果已成功保存到数据库, ID: {}", entity.getId());
+        } catch (JsonProcessingException e) {
+            log.error("序列化回测结果失败", e);
+        } catch (Exception e) {
+            log.error("保存回测结果到数据库时发生未知错误", e);
+        }
+    }
+
+    private BacktestResult createBacktestResultResponse(BacktestRequest request, PortfolioManager portfolioManager, PerformanceAnalyticsService.PerformanceMetrics metrics) {
+        BacktestResult result = new BacktestResult();
+        result.setStrategy(request.getStrategyName());
+        result.setSymbol(request.getSymbol());
+        result.setStartTime(request.getStartTime());
+        result.setEndTime(request.getEndTime());
+        result.setInitialCapital(BigDecimalUtils.scale(portfolioManager.getInitialCash()));
+        result.setFinalEquity(BigDecimalUtils.scale(portfolioManager.getCash()));
+
+        BigDecimal totalReturn = result.getFinalEquity().subtract(result.getInitialCapital());
+        result.setTotalReturn(totalReturn);
+
+        if (result.getInitialCapital().compareTo(BigDecimal.ZERO) > 0) {
+            result.setReturnRate(totalReturn.divide(result.getInitialCapital(), 4, RoundingMode.HALF_UP));
+        } else {
+            result.setReturnRate(BigDecimal.ZERO);
+        }
+
+        result.setAnnualizedReturn(metrics.annualizedReturn());
+        result.setSharpeRatio(metrics.sharpeRatio());
+        result.setSortinoRatio(metrics.sortinoRatio());
+        result.setMaxDrawdown(metrics.maxDrawdown());
+        result.setCalmarRatio(metrics.calmarRatio());
+        result.setWinRate(metrics.winRate());
+        result.setProfitFactor(metrics.profitLossRatio());
+        result.setTotalTrades(metrics.totalTrades());
+        result.setWinningTrades(metrics.winningTrades());
+        result.setLosingTrades(metrics.losingTrades());
+        result.setAvgWin(metrics.averageProfit());
+        result.setAvgLoss(metrics.averageLoss());
+
+        result.setTradeHistory(portfolioManager.getTradeHistory());
+        result.setEquityCurve(portfolioManager.getDailyEquitySnapshots().stream()
+                .map(PortfolioManager.EquitySnapshot::totalValue)
+                .collect(Collectors.toList()));
+
+        BigDecimal totalCommissions = portfolioManager.getTradeHistory().stream()
+                .map(Order::getCommission).filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        result.setTotalCommission(BigDecimalUtils.scale(totalCommissions));
+
+        log.info("回测完成: 最终权益(平仓后) {}, 收益率 {}%",
+                String.format("%.2f", result.getFinalEquity()),
+                String.format("%.2f", result.getReturnRate().multiply(BigDecimal.valueOf(100))));
+
+        return result;
+    }
+
+    // ... (其它辅助方法保持不变) ...
     
     private int findStartIndex(List<MarketData> data, LocalDateTime targetStartTime) {
         for (int i = 0; i < data.size(); i++) {
@@ -294,165 +423,6 @@ public class BacktestEngine {
         domainPosition.setAvgCost(backtestPosition.averageCost());
         domainPosition.setMarketValue(backtestPosition.marketValue());
         return domainPosition;
-    }
-
-    private BacktestResult calculateResult(PortfolioManager portfolioManager, BacktestRequest request, List<MarketData> historicalData) {
-        BacktestResult result = new BacktestResult();
-        result.setStrategy(request.getStrategyName());
-        result.setSymbol(request.getSymbol());
-        result.setStartTime(request.getStartTime());
-        result.setEndTime(request.getEndTime());
-        result.setInitialCapital(BigDecimalUtils.scale(portfolioManager.getInitialCash()));
-
-        // 1. 计算并记录“持仓到底”的市值(Mark-to-Market)
-        BigDecimal markToMarketEquity = BigDecimalUtils.scale(portfolioManager.calculateTotalEquity());
-        result.setFinalEquityMarkToMarket(markToMarketEquity);
-        result.setUnrealizedPnl(markToMarketEquity.subtract(portfolioManager.getInitialCash()));
-
-        // 2. 模拟期末强制平仓
-        if (!portfolioManager.getPositions().isEmpty()) {
-            MarketData lastData = historicalData.get(historicalData.size() - 1);
-            Map<String, PortfolioManager.Position> positionsToLiquidate = new HashMap<>(portfolioManager.getPositions());
-            log.info("回测期末，对 {} 个剩余持仓进行模拟平仓...", positionsToLiquidate.size());
-
-            for (PortfolioManager.Position position : positionsToLiquidate.values()) {
-                Order liquidationOrder = Order.builder()
-                        .symbol(position.symbol())
-                        .side(OrderSide.SELL)
-                        .type(OrderType.MARKET)
-                        .quantity(position.quantity())
-                        .price(lastData.getClose())
-                        .createTime(lastData.getTimestamp())
-                        .build();
-                portfolioManager.processTransaction(liquidationOrder);
-            }
-        }
-
-        // 3. 基于完全平仓后的最终现金计算核心指标
-        BigDecimal finalCash = BigDecimalUtils.scale(portfolioManager.getCash());
-        result.setFinalEquity(finalCash);
-
-        BigDecimal totalReturn = finalCash.subtract(portfolioManager.getInitialCash());
-        result.setTotalReturn(BigDecimalUtils.scale(totalReturn));
-
-        if (portfolioManager.getInitialCash().compareTo(BigDecimal.ZERO) > 0) {
-            BigDecimal returnRate = totalReturn.divide(portfolioManager.getInitialCash(), 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
-            result.setReturnRate(BigDecimalUtils.scale(returnRate));
-            result.setAnnualizedReturn(calculateAnnualizedReturn(finalCash, portfolioManager.getInitialCash(), request.getStartTime(), request.getEndTime()));
-        } else {
-            result.setReturnRate(BigDecimal.ZERO);
-            result.setAnnualizedReturn(BigDecimal.ZERO);
-        }
-
-        List<Order> trades = portfolioManager.getTradeHistory();
-        result.setTotalTrades(trades.size());
-        result.setTradeHistory(trades);
-        calculateTradeStats(result, trades);
-
-        List<BigDecimal> equityCurve = portfolioManager.getDailyEquitySnapshots().stream().map(PortfolioManager.EquitySnapshot::totalValue).collect(Collectors.toList());
-        result.setEquityCurve(equityCurve);
-        BigDecimal maxDrawdown = calculateMaxDrawdown(equityCurve);
-        result.setMaxDrawdown(BigDecimalUtils.scale(maxDrawdown));
-
-        List<BigDecimal> dailyReturns = calculateDailyReturns(portfolioManager.getDailyEquitySnapshots());
-        result.setDailyReturns(dailyReturns);
-        result.setSharpeRatio(calculateSharpeRatio(dailyReturns));
-        result.setSortinoRatio(calculateSortinoRatio(dailyReturns));
-
-        if (maxDrawdown.compareTo(BigDecimal.ZERO) > 0) {
-            result.setCalmarRatio(result.getAnnualizedReturn().divide(maxDrawdown, 2, RoundingMode.HALF_UP));
-        } else {
-            result.setCalmarRatio(BigDecimal.ZERO);
-        }
-
-        BigDecimal totalCommissions = trades.stream().map(Order::getCommission).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
-        result.setTotalCommission(BigDecimalUtils.scale(totalCommissions));
-
-        String formattedFinalEquity = String.format("%.2f", result.getFinalEquity());
-        String formattedReturnRate = String.format("%.2f", result.getReturnRate());
-        log.info("回测完成: 最终权益(平仓后) {}, 收益率 {}%", formattedFinalEquity, formattedReturnRate);
-        return result;
-    }
-
-    private void calculateTradeStats(BacktestResult result, List<Order> trades) {
-        List<Order> closingTrades = trades.stream().filter(o -> o.getSide() == OrderSide.SELL && o.getRealizedPnl() != null).collect(Collectors.toList());
-        if (closingTrades.isEmpty()) {
-            result.setWinRate(BigDecimal.ZERO);
-            result.setAvgWin(BigDecimal.ZERO);
-            result.setAvgLoss(BigDecimal.ZERO);
-            result.setProfitFactor(BigDecimal.ZERO);
-            return;
-        }
-
-        int winningTrades = (int) closingTrades.stream().filter(o -> o.getRealizedPnl().compareTo(BigDecimal.ZERO) > 0).count();
-        int losingTrades = closingTrades.size() - winningTrades;
-        result.setWinningTrades(winningTrades);
-        result.setLosingTrades(losingTrades);
-
-        BigDecimal winRate = BigDecimal.valueOf(winningTrades).divide(BigDecimal.valueOf(closingTrades.size()), 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
-        result.setWinRate(BigDecimalUtils.scale(winRate));
-
-        BigDecimal grossProfit = closingTrades.stream().filter(o -> o.getRealizedPnl().compareTo(BigDecimal.ZERO) > 0).map(Order::getRealizedPnl).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal grossLoss = closingTrades.stream().filter(o -> o.getRealizedPnl().compareTo(BigDecimal.ZERO) <= 0).map(Order::getRealizedPnl).reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        result.setAvgWin(winningTrades > 0 ? BigDecimalUtils.scale(grossProfit.divide(BigDecimal.valueOf(winningTrades), RoundingMode.HALF_UP)) : BigDecimal.ZERO);
-        result.setAvgLoss(losingTrades > 0 ? BigDecimalUtils.scale(grossLoss.divide(BigDecimal.valueOf(losingTrades), RoundingMode.HALF_UP)) : BigDecimal.ZERO);
-
-        if (grossLoss.abs().compareTo(BigDecimal.ZERO) > 0) {
-            result.setProfitFactor(BigDecimalUtils.scale(grossProfit.divide(grossLoss.abs(), RoundingMode.HALF_UP)));
-        } else {
-            result.setProfitFactor(BigDecimal.valueOf(Double.POSITIVE_INFINITY));
-        }
-    }
-
-    private List<BigDecimal> calculateDailyReturns(List<PortfolioManager.EquitySnapshot> equitySnapshots) {
-        List<BigDecimal> dailyReturns = new ArrayList<>();
-        for (int i = 1; i < equitySnapshots.size(); i++) {
-            BigDecimal previousEquity = equitySnapshots.get(i - 1).totalValue();
-            BigDecimal currentEquity = equitySnapshots.get(i).totalValue();
-            if (previousEquity.compareTo(BigDecimal.ZERO) != 0) {
-                BigDecimal dailyReturn = currentEquity.subtract(previousEquity).divide(previousEquity, 8, RoundingMode.HALF_UP);
-                dailyReturns.add(dailyReturn);
-            }
-        }
-        return dailyReturns;
-    }
-
-    private BigDecimal calculateAnnualizedReturn(BigDecimal finalEquity, BigDecimal initialCapital, LocalDateTime startTime, LocalDateTime endTime) {
-        long days = java.time.temporal.ChronoUnit.DAYS.between(startTime, endTime);
-        if (days <= 0) return BigDecimal.ZERO;
-        double annualizationFactor = 365.0 / days;
-        double totalReturnRatio = finalEquity.divide(initialCapital, 8, RoundingMode.HALF_UP).doubleValue();
-        double annualizedReturnRatio = Math.pow(totalReturnRatio, annualizationFactor) - 1;
-        return BigDecimal.valueOf(annualizedReturnRatio * 100).setScale(2, RoundingMode.HALF_UP);
-    }
-
-    private BigDecimal calculateSharpeRatio(List<BigDecimal> dailyReturns) {
-        if (dailyReturns == null || dailyReturns.size() < 2) return BigDecimal.ZERO;
-        double meanReturn = dailyReturns.stream().mapToDouble(BigDecimal::doubleValue).average().orElse(0.0);
-        double stdDev = Math.sqrt(dailyReturns.stream().mapToDouble(r -> Math.pow(r.doubleValue() - meanReturn, 2)).average().orElse(0.0));
-        if (stdDev == 0) return BigDecimal.ZERO;
-        return BigDecimal.valueOf((meanReturn / stdDev) * Math.sqrt(252)).setScale(2, RoundingMode.HALF_UP);
-    }
-
-    private BigDecimal calculateSortinoRatio(List<BigDecimal> dailyReturns) {
-        if (dailyReturns == null || dailyReturns.size() < 2) return BigDecimal.ZERO;
-        double meanReturn = dailyReturns.stream().mapToDouble(BigDecimal::doubleValue).average().orElse(0.0);
-        double downsideDeviation = Math.sqrt(dailyReturns.stream().filter(r -> r.compareTo(BigDecimal.ZERO) < 0).mapToDouble(r -> Math.pow(r.doubleValue(), 2)).average().orElse(0.0));
-        if (downsideDeviation == 0) return BigDecimal.ZERO;
-        return BigDecimal.valueOf((meanReturn / downsideDeviation) * Math.sqrt(252)).setScale(2, RoundingMode.HALF_UP);
-    }
-
-    private BigDecimal calculateMaxDrawdown(List<BigDecimal> equityCurve) {
-        if (equityCurve == null || equityCurve.isEmpty()) return BigDecimal.ZERO;
-        BigDecimal peak = equityCurve.get(0);
-        BigDecimal maxDrawdown = BigDecimal.ZERO;
-        for (BigDecimal equity : equityCurve) {
-            if (equity.compareTo(peak) > 0) peak = equity;
-            BigDecimal drawdown = peak.subtract(equity).divide(peak, 4, RoundingMode.HALF_UP);
-            if (drawdown.compareTo(maxDrawdown) > 0) maxDrawdown = drawdown;
-        }
-        return maxDrawdown.multiply(BigDecimal.valueOf(100));
     }
 
     private BacktestResult createEmptyResult(BacktestRequest request) {
