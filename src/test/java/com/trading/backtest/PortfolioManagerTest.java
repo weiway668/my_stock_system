@@ -108,7 +108,7 @@ class PortfolioManagerTest {
         assertThat(portfolioManager.getTradeHistory()).isEmpty();
     }
 
-    private Order createOrder(String symbol, OrderSide side, int quantity, double price) {
+    private Order createOrder(String symbol, OrderSide side, long quantity, double price) {
         return Order.builder()
                 .orderId(UUID.randomUUID().toString())
                 .symbol(symbol)

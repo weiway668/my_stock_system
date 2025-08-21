@@ -347,7 +347,7 @@ public class BacktestCommand extends AbstractCommand {
         // 收益指标
         printSubHeader("📈 收益指标");
         System.out.printf("初始资金: %s¥%,.2f%s%n", ANSI_CYAN, result.getInitialCapital(), ANSI_RESET);
-        System.out.printf("最终权益: %s¥%,.2f%s%n", ANSI_CYAN, result.getFinalEquity(), ANSI_RESET);
+        System.out.printf("最终权益(平仓后): %s¥%,.2f%s%n", ANSI_CYAN, result.getFinalEquity(), ANSI_RESET);
         System.out.printf("绝对收益: %s¥%,.2f%s%n", 
             result.getTotalReturn().compareTo(BigDecimal.ZERO) >= 0 ? ANSI_GREEN : ANSI_RED,
             result.getTotalReturn(), ANSI_RESET);
@@ -357,6 +357,15 @@ public class BacktestCommand extends AbstractCommand {
         System.out.printf("年化收益: %s%.2f%%%s%n",
             result.getAnnualizedReturn().compareTo(BigDecimal.ZERO) >= 0 ? ANSI_GREEN : ANSI_RED,
             result.getAnnualizedReturn(), ANSI_RESET);
+        
+        // 添加未平仓情况的展示
+        if (result.getFinalEquityMarkToMarket() != null && result.getUnrealizedPnl() != null) {
+            System.out.println("---");
+            System.out.printf("期末持仓权益(参考): %s¥%,.2f%s%n", ANSI_YELLOW, result.getFinalEquityMarkToMarket(), ANSI_RESET);
+            System.out.printf("期末浮动盈亏(参考): %s¥%,.2f%s%n", 
+                result.getUnrealizedPnl().compareTo(BigDecimal.ZERO) >= 0 ? ANSI_YELLOW : ANSI_RED,
+                result.getUnrealizedPnl(), ANSI_RESET);
+        }
         System.out.println();
         
         // 风险指标

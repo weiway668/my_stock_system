@@ -64,6 +64,18 @@ public class BacktestResult {
      */
     @JsonProperty("final_equity")
     private BigDecimal finalEquity;
+
+    /**
+     * 期末持仓市值（未平仓情况下的总权益）
+     */
+    @JsonProperty("final_equity_mark_to_market")
+    private BigDecimal finalEquityMarkToMarket;
+
+    /**
+     * 期末未实现盈亏
+     */
+    @JsonProperty("unrealized_pnl")
+    private BigDecimal unrealizedPnl;
     
     // === 收益指标 ===
     

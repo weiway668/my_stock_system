@@ -57,7 +57,7 @@ public class Order {
     private BigDecimal price;
     
     @Column(nullable = false)
-    private Integer quantity;
+    private Long quantity;
     
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
@@ -126,7 +126,7 @@ public class Order {
         if (orderPrice == null) {
             return BigDecimal.ZERO;
         }
-        Integer orderQuantity = executedQuantity != null ? executedQuantity : quantity;
+        Long orderQuantity = executedQuantity != null ? executedQuantity : quantity;
         return orderPrice.multiply(BigDecimal.valueOf(orderQuantity));
     }
     
