@@ -28,7 +28,6 @@ import java.util.Arrays;
 @ComponentScan(
     basePackages = "com.trading",
     excludeFilters = {
-        @ComponentScan.Filter(type = FilterType.REGEX, pattern = "com.trading.controller.*"),
         @ComponentScan.Filter(type = FilterType.REGEX, pattern = "com.trading.service.IntegratedTradingEventHandler"),
         @ComponentScan.Filter(type = FilterType.REGEX, pattern = "com.trading.infrastructure.futu.FutuHealthIndicator")
     }
