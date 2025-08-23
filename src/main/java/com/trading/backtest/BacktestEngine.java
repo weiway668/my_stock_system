@@ -57,6 +57,7 @@ import com.trading.domain.vo.TechnicalIndicators;
 import com.trading.repository.BacktestResultRepository;
 import com.trading.service.MarketDataService;
 import com.trading.strategy.TradingStrategy;
+import com.trading.strategy.UsesBollingerBands;
 import com.trading.strategy.impl.BollingerBandMultiStrategy;
 
 import lombok.RequiredArgsConstructor;
@@ -171,7 +172,7 @@ public class BacktestEngine {
 
         Map<String, BollingerIndicatorSet> bollingerBandsMap = new HashMap<>();
         // Check if the strategy is a Bollinger-based strategy to get its config.
-        if (strategy instanceof BollingerBandMultiStrategy) {
+        if (strategy instanceof UsesBollingerBands) {
             BollingerBandConfig config = applicationContext.getBean(BollingerBandConfig.class);
             log.info("检测到布林带策略，将为其计算 {} 套参数", config.getParameterSets().size());
             for (BollingerBandConfig.ParameterSet paramSet : config.getParameterSets()) {

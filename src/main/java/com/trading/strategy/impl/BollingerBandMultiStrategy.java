@@ -8,6 +8,7 @@ import com.trading.domain.entity.Order;
 import com.trading.domain.entity.Position;
 import com.trading.domain.vo.TechnicalIndicators;
 import com.trading.strategy.TradingStrategy;
+import com.trading.strategy.UsesBollingerBands;
 import com.trading.strategy.impl.bollinger.BollingerBandSubStrategy;
 import com.trading.strategy.impl.bollinger.MeanReversionSubStrategy;
 import com.trading.strategy.impl.bollinger.SqueezeBreakoutSubStrategy;
@@ -24,7 +25,7 @@ import java.util.Optional;
 
 @Slf4j
 @Component("BOLL")
-public class BollingerBandMultiStrategy extends AbstractTradingStrategy {
+public class BollingerBandMultiStrategy extends AbstractTradingStrategy implements TradingStrategy, UsesBollingerBands {
 
     private final BollingerBandConfig config;
     private final List<BollingerBandSubStrategy> subStrategies = new ArrayList<>();

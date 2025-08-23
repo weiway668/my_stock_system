@@ -4,7 +4,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -38,6 +40,7 @@ import org.ta4j.core.indicators.volume.OnBalanceVolumeIndicator;
 import org.ta4j.core.num.DecimalNum;
 import org.ta4j.core.num.Num;
 
+import com.trading.config.BollingerBandConfig;
 import com.trading.config.IndicatorParameters;
 import com.trading.domain.entity.MarketData;
 import com.trading.domain.vo.TechnicalIndicators;
@@ -60,6 +63,7 @@ public class TechnicalAnalysisService {
 
     private final MarketDataService marketDataService;
     private final CacheService cacheService;
+    private final BollingerBandConfig bollingerBandConfig;
 
     // 默认参数
     private static final int DEFAULT_RSI_PERIOD = 14;
@@ -911,6 +915,46 @@ public class TechnicalAnalysisService {
 
             // 构建TA4J序列
             BarSeries series = buildBarSeries(symbol, historicalData);
+            ClosePriceIndicator closePrice = new ClosePriceIndicator(series);
+
+            // --- 新增：计算多套布林带参数 ---
+            Map<String, TechnicalIndicators.BollingerBandSet> bollingerBandsMap = new HashMap<>();
+            for (BollingerBandConfig.ParameterSet params : bollingerBandConfig.getParameterSets()) {
+                if (dataSize >= params.getPeriod()) {
+                    SMAIndicator sma = new SMAIndicator(closePrice, params.getPeriod());
+                    BollingerBandsMiddleIndicator middleIndicator = new BollingerBandsMiddleIndicator(sma);
+                    StandardDeviationIndicator stdDevIndicator = new StandardDeviationIndicator(closePrice, params.getPeriod());
+                    Num stdDevMultiplier = DecimalNum.valueOf(params.getStdDev());
+
+                    BollingerBandsUpperIndicator upperIndicator = new BollingerBandsUpperIndicator(middleIndicator, stdDevIndicator, stdDevMultiplier);
+                    BollingerBandsLowerIndicator lowerIndicator = new BollingerBandsLowerIndicator(middleIndicator, stdDevIndicator, stdDevMultiplier);
+
+                    BigDecimal upper = toBigDecimal(upperIndicator.getValue(series.getEndIndex()));
+                    BigDecimal middle = toBigDecimal(middleIndicator.getValue(series.getEndIndex()));
+                    BigDecimal lower = toBigDecimal(lowerIndicator.getValue(series.getEndIndex()));
+                    BigDecimal bandwidth = BigDecimal.ZERO;
+                    if (middle.compareTo(BigDecimal.ZERO) != 0) {
+                        bandwidth = upper.subtract(lower).divide(middle, 4, BigDecimal.ROUND_HALF_UP);
+                    }
+
+                    BigDecimal percentB = BigDecimal.valueOf(0.5);
+                    BigDecimal range = upper.subtract(lower);
+                    if (range.compareTo(BigDecimal.ZERO) != 0) {
+                        BigDecimal currentClose = toBigDecimal(series.getBar(series.getEndIndex()).getClosePrice());
+                        percentB = currentClose.subtract(lower).divide(range, 4, BigDecimal.ROUND_HALF_UP);
+                    }
+
+                    TechnicalIndicators.BollingerBandSet bandSet = TechnicalIndicators.BollingerBandSet.builder()
+                            .upperBand(upper)
+                            .middleBand(middle)
+                            .lowerBand(lower)
+                            .bandwidth(bandwidth)
+                            .percentB(percentB)
+                            .build();
+                    bollingerBandsMap.put(params.getKey(), bandSet);
+                }
+            }
+            // --- 结束：计算多套布林带参数 ---
 
             // 获取时间周期（从第一条数据获取）
             String timeframeStr = "1d";
@@ -920,14 +964,15 @@ public class TechnicalAnalysisService {
 
             // 计算各种技术指标（使用动态参数）
             TechnicalIndicators indicators = TechnicalIndicators.builder()
+                    .bollingerBands(bollingerBandsMap) // 设置多套布林带
                     .macdLine(calculateMACD(series))
                     .signalLine(calculateMACDSignal(series))
                     .histogram(calculateMACDHistogram(series))
-                    .upperBand(calculateBollingerUpper(series))
+                    .upperBand(calculateBollingerUpper(series)) // 保留默认布林带计算
                     .middleBand(calculateBollingerMiddle(series))
                     .lowerBand(calculateBollingerLower(series))
-                    .bandwidth(calculateBollingerBandwidth(series)) // 新增带宽
-                    .percentB(calculateBollingerPercentB(series)) // 新增%B
+                    .bandwidth(calculateBollingerBandwidth(series))
+                    .percentB(calculateBollingerPercentB(series))
                     .rsi(calculateRSI(series))
                     .sma20(calculateSMA(series, 20))
                     .sma50(calculateSMA(series, 50)) // 新增50日移动平均
