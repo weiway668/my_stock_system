@@ -41,11 +41,19 @@ public abstract class AbstractTradingStrategy implements TradingStrategy {
         doInitialize();
         this.lastUpdateTime = LocalDateTime.now();
     }
+
+    public void destroy(){
+        log.info("销毁策略: {}", getName());
+        doDestroy();
+        this.lastUpdateTime = LocalDateTime.now();
+    }
     
     /**
      * 子类实现的初始化逻辑
      */
     protected abstract void doInitialize();
+
+    protected abstract void doDestroy();
     
     @Override
     public String getName() {

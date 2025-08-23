@@ -141,6 +141,13 @@ public class BacktestRequest {
     @JsonProperty("rehab_type")
     @Builder.Default
     private RehabType rehabType = RehabType.FORWARD; // 默认使用前复权
+
+    /**
+     * 策略动态参数
+     * 用于在单次回测中覆盖策略的默认参数
+     */
+    @JsonProperty("strategy_parameters")
+    private java.util.Map<String, Object> strategyParameters;
     
     /**
      * 创建默认的港股回测请求

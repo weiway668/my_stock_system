@@ -86,6 +86,9 @@ public class BacktestEngine {
                 BarSeries series = buildBarSeries(request.getSymbol(), historicalDataWithWarmup);
                 PrecalculatedIndicators precalculatedIndicators = precalculateIndicators(series);
 
+                // 初始化策略，这是关键步骤！
+                request.getStrategy().initialize(request.getStrategyParameters());
+
                 PortfolioManager portfolioManager = new PortfolioManager(request.getInitialCapital().doubleValue(), request.getSlippageRate().doubleValue(), commissionCalculator);
                 List<Order> pendingOrders = new ArrayList<>();
                 LocalDate lastDate = null;
@@ -132,6 +135,9 @@ public class BacktestEngine {
             } catch (Exception e) {
                 log.error("回测执行失败", e);
                 return createErrorResult(request, e.getMessage());
+            } finally {
+                log.info("回测结束，调用策略销毁方法: {}", request.getStrategyName());
+                request.getStrategy().destroy();
             }
         });
     }
