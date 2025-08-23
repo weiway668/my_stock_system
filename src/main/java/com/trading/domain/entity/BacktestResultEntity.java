@@ -101,6 +101,22 @@ public class BacktestResultEntity {
     @Column(precision = 18, scale = 4)
     private BigDecimal finalCapital;
 
+    // === 成本统计 ===
+    @Column(precision = 18, scale = 4)
+    private BigDecimal totalCost;
+
+    @Column(precision = 18, scale = 4)
+    private BigDecimal totalCommission;
+
+    @Column(precision = 18, scale = 4)
+    private BigDecimal totalStampDuty;
+
+    @Column(precision = 18, scale = 4)
+    private BigDecimal totalTradingFee;
+
+    @Column(precision = 18, scale = 4)
+    private BigDecimal totalSettlementFee;
+
     @Lob
     @Column(columnDefinition = "TEXT")
     private String dailyEquityChartData; // 用于图表绘制的每日权益数据 (JSON格式)

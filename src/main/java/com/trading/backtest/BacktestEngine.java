@@ -212,6 +212,11 @@ public class BacktestEngine {
                     .averageLoss(metrics.averageLoss())
                     .initialCapital(portfolioManager.getInitialCash())
                     .finalCapital(portfolioManager.getCash())
+                    .totalCost(metrics.totalCost())
+                    .totalCommission(metrics.totalCommission())
+                    .totalStampDuty(metrics.totalStampDuty())
+                    .totalTradingFee(metrics.totalTradingFee())
+                    .totalSettlementFee(metrics.totalSettlementFee())
                     .dailyEquityChartData(dailyEquityJson)
                     .tradeHistoryData(tradeHistoryJson)
                     .build();
@@ -243,6 +248,7 @@ public class BacktestEngine {
             result.setReturnRate(BigDecimal.ZERO);
         }
 
+        // 从 'metrics' 对象统一设置所有性能指标
         result.setAnnualizedReturn(metrics.annualizedReturn());
         result.setSharpeRatio(metrics.sharpeRatio());
         result.setSortinoRatio(metrics.sortinoRatio());
@@ -256,15 +262,18 @@ public class BacktestEngine {
         result.setAvgWin(metrics.averageProfit());
         result.setAvgLoss(metrics.averageLoss());
 
+        // 从 'metrics' 对象统一设置所有成本指标
+        result.setTotalCosts(metrics.totalCost()); // 修正: 使用正确的复数形式方法 setTotalCosts
+        result.setTotalCommission(metrics.totalCommission());
+        result.setTotalStampDuty(metrics.totalStampDuty());
+        result.setTotalTradingFee(metrics.totalTradingFee());
+        result.setTotalSettlementFee(metrics.totalSettlementFee());
+
+        // 设置详细数据
         result.setTradeHistory(portfolioManager.getTradeHistory());
         result.setEquityCurve(portfolioManager.getDailyEquitySnapshots().stream()
                 .map(PortfolioManager.EquitySnapshot::totalValue)
                 .collect(Collectors.toList()));
-
-        BigDecimal totalCommissions = portfolioManager.getTradeHistory().stream()
-                .map(Order::getCommission).filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        result.setTotalCommission(BigDecimalUtils.scale(totalCommissions));
 
         log.info("回测完成: 最终权益(平仓后) {}, 收益率 {}%",
                 String.format("%.2f", result.getFinalEquity()),

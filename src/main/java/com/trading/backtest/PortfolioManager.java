@@ -78,7 +78,7 @@ public class PortfolioManager {
         BigDecimal newAverageCost = newTotalCost.divide(BigDecimal.valueOf(newQuantity), 4, RoundingMode.HALF_UP); // 成本保留4位小数以提高精度
 
         positions.put(buyOrder.getSymbol(), new Position(buyOrder.getSymbol(), newQuantity, newAverageCost, BigDecimal.ZERO));
-        updateAndRecordOrder(buyOrder, executionPrice, totalCost);
+        updateAndRecordOrder(buyOrder, executionPrice, costs, null);
     }
 
     private void executeSell(Order sellOrder) {
@@ -109,16 +109,19 @@ public class PortfolioManager {
         } else {
             positions.put(sellOrder.getSymbol(), new Position(sellOrder.getSymbol(), newQuantity, currentPosition.averageCost(), BigDecimal.ZERO));
         }
-        updateAndRecordOrder(sellOrder, executionPrice, totalCost, realizedPnl);
+        updateAndRecordOrder(sellOrder, executionPrice, costs, realizedPnl);
     }
 
-    private void updateAndRecordOrder(Order order, BigDecimal executedPrice, BigDecimal commission) {
-        updateAndRecordOrder(order, executedPrice, commission, null);
-    }
-
-    private void updateAndRecordOrder(Order order, BigDecimal executedPrice, BigDecimal commission, BigDecimal realizedPnl) {
+    private void updateAndRecordOrder(Order order, BigDecimal executedPrice, HKStockCommissionCalculator.CommissionBreakdown costs, BigDecimal realizedPnl) {
         order.setExecutedPrice(BigDecimalUtils.scale(executedPrice));
-        order.setCommission(BigDecimalUtils.scale(commission));
+        order.setCommission(costs.getCommission());
+        order.setPlatformFee(costs.getPlatformFee());
+        order.setSettlementFee(costs.getSettlementFee());
+        order.setStampDuty(costs.getStampDuty());
+        order.setTradingFee(costs.getTradingFee());
+        order.setSfcLevy(costs.getSfcLevy());
+        order.setFrcFee(costs.getFrcFee());
+        order.setTotalCost(costs.getTotalCost());
         if (realizedPnl != null) {
             order.setRealizedPnl(BigDecimalUtils.scale(realizedPnl));
         }

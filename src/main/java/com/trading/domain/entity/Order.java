@@ -86,6 +86,27 @@ public class Order {
     
     @Column(precision = 10, scale = 2)
     private BigDecimal commission;
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal platformFee; // 平台费
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal settlementFee; // 交收费
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal stampDuty; // 印花税
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal tradingFee; // 交易费
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal sfcLevy; // 证监会征费
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal frcFee; // 财汇局征费
+
+    @Column(precision = 10, scale = 2)
+    private BigDecimal totalCost; // 总交易成本
     
     @Column(precision = 10, scale = 2)
     private BigDecimal slippage;
@@ -134,15 +155,15 @@ public class Order {
     }
     
     /**
-     * Calculate total cost including commission
+     * Calculate total value of the order including costs
      */
-    public BigDecimal getTotalCost() {
+    public BigDecimal getNetValue() {
         BigDecimal totalValue = getTotalValue();
-        if (commission != null) {
+        if (totalCost != null) {
             if (side == OrderSide.BUY) {
-                totalValue = totalValue.add(commission);
+                totalValue = totalValue.add(totalCost);
             } else {
-                totalValue = totalValue.subtract(commission);
+                totalValue = totalValue.subtract(totalCost);
             }
         }
         return totalValue;

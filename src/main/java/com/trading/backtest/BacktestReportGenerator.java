@@ -175,12 +175,12 @@ public class BacktestReportGenerator {
      */
     private void generateTradesCsv(List<Order> trades, Path outputPath) throws IOException {
         try (PrintWriter writer = new PrintWriter(Files.newBufferedWriter(outputPath))) {
-            // CSV标题
-            writer.println("交易时间,订单ID,股票代码,交易类型,数量,价格,总金额,手续费,滑点,已实现盈亏,状态");
-            
+            // 新版CSV标题，包含所有费用明细
+            writer.println("交易时间,订单ID,股票代码,交易类型,数量,价格,总金额,总费用,佣金,印花税,平台费,交易费,交收费,滑点,已实现盈亏,状态");
+
             // 交易记录
             for (Order trade : trades) {
-                writer.printf("%s,%s,%s,%s,%d,%.4f,%.2f,%.2f,%.2f,%.2f,%s%n",
+                writer.printf("%s,%s,%s,%s,%d,%.4f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%s%n",
                     trade.getCreateTime(),
                     trade.getOrderId(),
                     trade.getSymbol(),
@@ -188,14 +188,19 @@ public class BacktestReportGenerator {
                     trade.getQuantity(),
                     trade.getPrice(),
                     trade.getPrice().multiply(BigDecimal.valueOf(trade.getQuantity())),
+                    trade.getTotalCost() != null ? trade.getTotalCost() : BigDecimal.ZERO,
                     trade.getCommission() != null ? trade.getCommission() : BigDecimal.ZERO,
+                    trade.getStampDuty() != null ? trade.getStampDuty() : BigDecimal.ZERO,
+                    trade.getPlatformFee() != null ? trade.getPlatformFee() : BigDecimal.ZERO,
+                    trade.getTradingFee() != null ? trade.getTradingFee() : BigDecimal.ZERO,
+                    trade.getSettlementFee() != null ? trade.getSettlementFee() : BigDecimal.ZERO,
                     trade.getSlippage() != null ? trade.getSlippage() : BigDecimal.ZERO,
                     trade.getRealizedPnl() != null ? trade.getRealizedPnl() : BigDecimal.ZERO,
                     trade.getStatus().toString()
                 );
             }
         }
-        
+
         log.debug("已生成交易记录文件: {} ({} 条记录)", outputPath, trades.size());
     }
     

@@ -58,7 +58,12 @@ public class PerformanceAnalyticsService {
             int winningTrades,
             int losingTrades,
             BigDecimal averageProfit,
-            BigDecimal averageLoss
+            BigDecimal averageLoss,
+            BigDecimal totalCost,
+            BigDecimal totalCommission,
+            BigDecimal totalStampDuty,
+            BigDecimal totalTradingFee,
+            BigDecimal totalSettlementFee
     ) {
     }
 
@@ -127,10 +132,18 @@ public class PerformanceAnalyticsService {
         BigDecimal profitLossRatio = (averageLoss.compareTo(BigDecimal.ZERO) == 0) ? BigDecimal.ZERO :
                 averageProfit.divide(averageLoss, SCALE, ROUNDING_MODE);
 
+        // 成本分析
+        BigDecimal totalCost = completedTrades.stream().map(Order::getTotalCost).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalCommission = completedTrades.stream().map(Order::getCommission).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalStampDuty = completedTrades.stream().map(Order::getStampDuty).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalTradingFee = completedTrades.stream().map(Order::getTradingFee).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalSettlementFee = completedTrades.stream().map(Order::getSettlementFee).reduce(BigDecimal.ZERO, BigDecimal::add);
+
         return new PerformanceMetrics(
                 annualizedReturn, cumulativeReturn, sharpeRatio, sortinoRatio,
                 maxDrawdown, calmarRatio, winRate, profitLossRatio,
-                totalTrades, winningTrades, losingTrades, averageProfit, averageLoss
+                totalTrades, winningTrades, losingTrades, averageProfit, averageLoss,
+                totalCost, totalCommission, totalStampDuty, totalTradingFee, totalSettlementFee
         );
     }
 
@@ -232,7 +245,8 @@ public class PerformanceAnalyticsService {
         return new PerformanceMetrics(
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
-                0, 0, 0, BigDecimal.ZERO, BigDecimal.ZERO
+                0, 0, 0, BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO
         );
     }
 }
