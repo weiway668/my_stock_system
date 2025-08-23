@@ -76,7 +76,7 @@ public class AdaptiveBollingerStrategy extends AbstractTradingStrategy implement
         if (adx.doubleValue() > config.getAdaptive().getAdxThreshold()) {
             return MarketState.TRENDING;
         }
-
+        
         BigDecimal atrRatio = atr.divide(close, 4, BigDecimal.ROUND_HALF_UP);
         if (atrRatio.doubleValue() < config.getAdaptive().getAtrRatioThreshold()) {
             return MarketState.RANGING;

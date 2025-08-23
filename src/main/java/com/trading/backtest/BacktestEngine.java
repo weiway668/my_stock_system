@@ -58,7 +58,6 @@ import com.trading.repository.BacktestResultRepository;
 import com.trading.service.MarketDataService;
 import com.trading.strategy.TradingStrategy;
 import com.trading.strategy.UsesBollingerBands;
-import com.trading.strategy.impl.BollingerBandMultiStrategy;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -305,6 +304,8 @@ public class BacktestEngine {
                     .totalCost(metrics.totalCost()).totalCommission(metrics.totalCommission()).totalStampDuty(metrics.totalStampDuty()).totalTradingFee(metrics.totalTradingFee()).totalSettlementFee(metrics.totalSettlementFee()).totalPlatformFee(metrics.totalPlatformFee())
                     .dailyEquityChartData(dailyEquityJson).tradeHistoryData(tradeHistoryJson).build();
             backtestResultRepository.save(entity);
+            log.info("回测结果已成功保存到数据库, ID: {}", entity.getId());
+
         } catch (Exception e) {
             log.error("保存回测结果失败", e);
         }
