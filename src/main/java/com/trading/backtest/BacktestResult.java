@@ -10,6 +10,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -350,23 +351,30 @@ public class BacktestResult {
         if (!isSuccessful()) {
             return "回测失败: " + error;
         }
-        
+
         StringBuilder summary = new StringBuilder();
         summary.append("=== 回测摘要 ===\n");
         summary.append(String.format("策略: %s\n", strategy));
         summary.append(String.format("标的: %s\n", symbol));
         summary.append(String.format("期间: %s 至 %s (%d天)\n", 
             startTime.toLocalDate(), endTime.toLocalDate(), getBacktestDays()));
-        summary.append(String.format("初始资金: ¥%.2f\n", initialCapital));
-        summary.append(String.format("最终权益: ¥%.2f\n", finalEquity));
-        summary.append(String.format("总收益率: %.2f%%\n", returnRate));
-        summary.append(String.format("年化收益率: %.2f%%\n", annualizedReturn));
-        summary.append(String.format("最大回撤: %.2f%%\n", maxDrawdown));
+        summary.append(String.format("初始资金: ¥%,.2f\n", initialCapital));
+        summary.append(String.format("最终权益: ¥%,.2f\n", finalEquity));
+        summary.append(String.format("绝对收益: ¥%,.2f\n", totalReturn));
+        summary.append(String.format("总收益率: %.2f%%\n", returnRate.movePointRight(2)));
+        summary.append(String.format("年化收益率: %.2f%%\n", annualizedReturn.movePointRight(2)));
+        summary.append(String.format("最大回撤: %.2f%%\n", maxDrawdown.movePointRight(2)));
         summary.append(String.format("夏普比率: %.2f\n", sharpeRatio));
         summary.append(String.format("总交易次数: %d\n", totalTrades));
-        summary.append(String.format("胜率: %.1f%%\n", winRate));
+        summary.append(String.format("胜率: %.1f%%\n", winRate.movePointRight(2)));
         summary.append(String.format("盈亏比: %.2f\n", profitFactor));
-        
+        summary.append(String.format("总交易费用: ¥%,.2f\n", totalCosts));
+
+        if (totalReturn != null && totalReturn.compareTo(BigDecimal.ZERO) > 0 && totalCosts != null) {
+            BigDecimal costToReturnRatio = totalCosts.divide(totalReturn, 4, RoundingMode.HALF_UP);
+            summary.append(String.format("费用/收益比: %.2f%%\n", costToReturnRatio.movePointRight(2)));
+        }
+
         return summary.toString();
     }
     

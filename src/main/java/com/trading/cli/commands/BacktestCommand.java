@@ -326,8 +326,11 @@ public class BacktestCommand extends AbstractCommand {
     private void printBacktestResult(BacktestResult result, boolean verbose, boolean quiet) {
         if (quiet) {
             System.out.printf("%.2f%%,%.2f%%,%.2f,%.1f%%,%d%n",
-                    result.getReturnRate(), result.getMaxDrawdown(),
-                    result.getSharpeRatio(), result.getWinRate(), result.getTotalTrades());
+                    result.getReturnRate().multiply(BigDecimal.valueOf(100)), 
+                    result.getMaxDrawdown().multiply(BigDecimal.valueOf(100)),
+                    result.getSharpeRatio(), 
+                    result.getWinRate().multiply(BigDecimal.valueOf(100)), 
+                    result.getTotalTrades());
             return;
         }
 
@@ -359,18 +362,10 @@ public class BacktestCommand extends AbstractCommand {
         System.out.printf("年化收益: %s%.2f%%%s%n",
                 result.getAnnualizedReturn().compareTo(BigDecimal.ZERO) >= 0 ? ANSI_GREEN : ANSI_RED,
                 result.getAnnualizedReturn().multiply(BigDecimal.valueOf(100)), ANSI_RESET);
-
-        if (result.getFinalEquityMarkToMarket() != null && result.getUnrealizedPnl() != null) {
-            System.out.println("---");
-            System.out.printf("期末持仓权益(参考): %s¥%,.2f%s%n", ANSI_YELLOW, result.getFinalEquityMarkToMarket(), ANSI_RESET);
-            System.out.printf("期末浮动盈亏(参考): %s¥%,.2f%s%n",
-                    result.getUnrealizedPnl().compareTo(BigDecimal.ZERO) >= 0 ? ANSI_YELLOW : ANSI_RED,
-                    result.getUnrealizedPnl(), ANSI_RESET);
-        }
         System.out.println();
 
         printSubHeader("⚠️ 风险指标");
-        System.out.printf("最大回撤: %s%.2f%%%s%n", ANSI_RED, result.getMaxDrawdown(), ANSI_RESET);
+        System.out.printf("最大回撤: %s%.2f%%%s%n", ANSI_RED, result.getMaxDrawdown().multiply(BigDecimal.valueOf(100)), ANSI_RESET);
         System.out.printf("夏普比率: %.2f%n", result.getSharpeRatio());
         if (result.getSortinoRatio() != null) {
             System.out.printf("索提诺比率: %.2f%n", result.getSortinoRatio());
@@ -385,33 +380,34 @@ public class BacktestCommand extends AbstractCommand {
         if (result.getTotalTrades() > 0) {
             System.out.printf("盈利交易: %s%d%s%n", ANSI_GREEN, result.getWinningTrades(), ANSI_RESET);
             System.out.printf("亏损交易: %s%d%s%n", ANSI_RED, result.getLosingTrades(), ANSI_RESET);
-            System.out.printf("胜率: %.1f%%%n", result.getWinRate());
+            System.out.printf("胜率: %.1f%%%n", result.getWinRate().multiply(BigDecimal.valueOf(100)));
             System.out.printf("平均盈利: %s¥%.2f%s%n", ANSI_GREEN, result.getAvgWin(), ANSI_RESET);
             System.out.printf("平均亏损: %s¥%.2f%s%n", ANSI_RED, result.getAvgLoss(), ANSI_RESET);
             System.out.printf("盈亏比: %.2f%n", result.getProfitFactor());
+            if (result.getTotalCosts() != null && result.getTotalCosts().compareTo(BigDecimal.ZERO) > 0) {
+                System.out.printf("总交易费用: ¥%,.2f%n", result.getTotalCosts());
+                if (result.getTotalReturn() != null && result.getTotalReturn().compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal costRatio = result.getTotalCosts().divide(result.getTotalReturn(), 4, RoundingMode.HALF_UP);
+                    System.out.printf("费用/收益比: %.2f%%%n", costRatio.multiply(BigDecimal.valueOf(100)));
+                }
+            }
         }
         System.out.println();
 
         if (verbose && result.getTotalCosts() != null) {
-            printSubHeader("💰 成本分析");
+            printSubHeader("💰 成本明细 (Verbose)");
             System.out.printf("总佣金: ¥%.2f%n", result.getTotalCommission());
             System.out.printf("总滑点: ¥%.2f%n", result.getTotalSlippage());
             if (result.getTotalStampDuty() != null) {
                 System.out.printf("印花税: ¥%.2f%n", result.getTotalStampDuty());
             }
-            System.out.printf("总成本: ¥%.2f%n", result.getTotalCosts());
-            System.out.printf("成本占收益比: %.2f%%%n",
-                    result.getTotalReturn().compareTo(BigDecimal.ZERO) > 0
-                            ? result.getTotalCosts().divide(result.getTotalReturn(), 4, RoundingMode.HALF_UP)
-                                    .multiply(BigDecimal.valueOf(100))
-                            : BigDecimal.ZERO);
             System.out.println();
         }
 
         printSubHeader("🎯 目标分析");
-        boolean annualReturnTarget = result.getAnnualizedReturn().compareTo(new BigDecimal("15")) >= 0 &&
-                result.getAnnualizedReturn().compareTo(new BigDecimal("20")) <= 0;
-        boolean maxDrawdownTarget = result.getMaxDrawdown().compareTo(new BigDecimal("15")) < 0;
+        boolean annualReturnTarget = result.getAnnualizedReturn().compareTo(new BigDecimal("0.15")) >= 0 &&
+                result.getAnnualizedReturn().compareTo(new BigDecimal("0.20")) <= 0;
+        boolean maxDrawdownTarget = result.getMaxDrawdown().compareTo(new BigDecimal("0.15")) < 0;
 
         System.out.printf("年化收益目标(15-20%%): %s%n",
                 annualReturnTarget ? "✅ 达成" : "❌ 未达成");
