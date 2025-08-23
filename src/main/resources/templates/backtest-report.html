@@ -1,290 +1,165 @@
 <!DOCTYPE html>
-<html lang="zh" xmlns:th="http://www.thymeleaf.org">
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8">
     <title>回测报告</title>
-    <!-- Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- ECharts -->
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.2/dist/echarts.min.js"></script>
     <style>
-        body { background-color: #f8f9fa; }
-        .chart-container { width: 100%; height: 400px; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,.1); margin-top: 20px; }
-        .kpi-card { text-align: center; }
-        .kpi-value { font-size: 1.5rem; font-weight: bold; }
-        .kpi-label { font-size: 0.9rem; color: #6c757d; }
-        .positive { color: #198754; }
-        .negative { color: #dc3545; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 0; padding: 20px; background-color: #f8f9fa; color: #343a40; }
+        .container { max-width: 1400px; margin: 0 auto; background: #fff; border-radius: 10px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); overflow: hidden; }
+        header { background: linear-gradient(135deg, #4a90e2 0%, #50e3c2 100%); color: white; padding: 30px; text-align: center; }
+        header h1 { margin: 0; font-size: 2.5rem; }
+        header p { margin: 10px 0 0; font-size: 1.1rem; opacity: 0.9; }
+        .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; padding: 25px; border-bottom: 1px solid #e9ecef; }
+        .metric-card { background-color: #fdfdfd; border-radius: 8px; padding: 20px; border-left: 5px solid #4a90e2; }
+        .metric-card h3 { margin: 0 0 15px; font-size: 1.2rem; color: #495057; border-bottom: 1px solid #f1f3f5; padding-bottom: 10px; }
+        .metric-card ul { list-style: none; padding: 0; margin: 0; }
+        .metric-card li { display: flex; justify-content: space-between; padding: 8px 0; font-size: 0.95rem; }
+        .metric-card li:not(:last-child) { border-bottom: 1px solid #f1f3f5; }
+        .metric-card .label { color: #6c757d; }
+        .metric-card .value { font-weight: 600; color: #343a40; }
+        .metric-card .value.positive { color: #28a745; }
+        .metric-card .value.negative { color: #dc3545; }
+        .chart-container { padding: 25px; }
+        .table-container { padding: 25px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #dee2e6; }
+        thead th { background-color: #f8f9fa; font-weight: 600; color: #495057; }
+        tbody tr:nth-child(even) { background-color: #fdfdfd; }
+        tbody tr:hover { background-color: #f1f3f5; }
     </style>
 </head>
 <body>
-<div class="container mt-4">
-    <h1 class="mb-4">回测报告</h1>
+<div class="container">
+    <header>
+        <h1>回测报告</h1>
+        <p>策略: <strong th:text="${result.strategyName}"></strong> | 标的: <strong th:text="${result.symbol}"></strong></p>
+        <p>
+            <span th:text="${#temporals.format(result.startDate, 'yyyy-MM-dd')}"></span>
+            至
+            <span th:text="${#temporals.format(result.endDate, 'yyyy-MM-dd')}"></span>
+        </p>
+    </header>
 
-    <!-- 前端调试信息 -->
-    <div th:if="${klineDates != null}" class="alert alert-info">
-        <strong>调试信息:</strong>
-        K线数据点: <span th:text="${#lists.size(klineDates)}"></span> | 
-        买点: <span th:text="${#lists.size(buyPoints)}"></span> | 
-        卖点: <span th:text="${#lists.size(sellPoints)}"></span>
-    </div>
-
-    <!-- 报告元数据 -->
-    <div class="card mb-4">
-        <div class="card-header">报告详情</div>
-        <div class="card-body">
-            <div class="row">
-                <div class="col-md-4"><strong>策略名称:</strong> <span th:text="${report.strategyName}"></span></div>
-                <div class="col-md-4"><strong>股票代码:</strong> <span th:text="${report.symbol}"></span></div>
-                <div class="col-md-4"><strong>报告ID:</strong> <small class="text-muted" th:text="${report.id}"></small></div>
-            </div>
-            <div class="row mt-2">
-                <div class="col-md-4"><strong>回测周期:</strong> <span th:text="${report.startDate} + ' to ' + ${report.endDate}"></span></div>
-                <div class="col-md-4"><strong>报告生成时间:</strong> <span th:text="${#temporals.format(report.backtestRunTime, 'yyyy-MM-dd HH:mm:ss')}"></span></div>
-            </div>
+    <div class="summary-grid">
+        <!-- 收益指标 -->
+        <div class="metric-card" style="border-color: #28a745;">
+            <h3>📈 收益指标</h3>
+            <ul>
+                <li><span class="label">初始资金</span><span class="value" th:text="${initialCapitalStr}"></span></li>
+                <li><span class="label">最终权益</span><span class="value" th:text="${finalCapitalStr}"></span></li>
+                <li><span class="label">累计收益</span><span class="value" th:classappend="${isTotalReturnPositive ? 'positive' : 'negative'}" th:text="${totalReturnStr}"></span></li>
+                <li><span class="label">年化收益率</span><span class="value" th:classappend="${isAnnualizedReturnPositive ? 'positive' : 'negative'}" th:text="${annualizedReturnStr}"></span></li>
+            </ul>
         </div>
-    </div>
-
-    <!-- 关键指标汇总 -->
-    <div class="row text-center mb-4">
-        <div class="col-md-3">
-            <div class="card h-100">
-                <div class="card-body">
-                    <div class="kpi-value" th:classappend="${report.annualizedReturn > 0 ? 'positive' : 'negative'}" th:text="${#numbers.formatPercent(report.annualizedReturn, 1, 2)}"></div>
-                    <div class="kpi-label">年化收益率</div>
-                </div>
-            </div>
+        <!-- 风险指标 -->
+        <div class="metric-card" style="border-color: #dc3545;">
+            <h3>⚠️ 风险指标</h3>
+            <ul>
+                <li><span class="label">最大回撤</span><span class="value negative" th:text="${maxDrawdownStr}"></span></li>
+                <li><span class="label">夏普比率</span><span class="value" th:text="${sharpeRatioStr}"></span></li>
+                <li><span class="label">索提诺比率</span><span class="value" th:text="${sortinoRatioStr}"></span></li>
+                <li><span class="label">卡尔马比率</span><span class="value" th:text="${calmarRatioStr}"></span></li>
+            </ul>
         </div>
-        <div class="col-md-3">
-            <div class="card h-100">
-                <div class="card-body">
-                    <div class="kpi-value negative" th:text="${#numbers.formatPercent(report.maxDrawdown, 1, 2)}"></div>
-                    <div class="kpi-label">最大回撤</div>
-                </div>
-            </div>
+        <!-- 交易统计 -->
+        <div class="metric-card" style="border-color: #ffc107;">
+            <h3>📊 交易统计</h3>
+            <ul>
+                <li><span class="label">总交易次数</span><span class="value" th:text="${result.totalTrades}"></span></li>
+                <li><span class="label">盈利交易</span><span class="value positive" th:text="${result.winningTrades}"></span></li>
+                <li><span class="label">亏损交易</span><span class="value negative" th:text="${result.losingTrades}"></span></li>
+                <li><span class="label">胜率</span><span class="value" th:text="${winRateStr}"></span></li>
+                <li><span class="label">盈亏比</span><span class="value" th:text="${profitLossRatioStr}"></span></li>
+            </ul>
         </div>
-        <div class="col-md-3">
-            <div class="card h-100">
-                <div class="card-body">
-                    <div class="kpi-value" th:classappend="${report.sharpeRatio > 0 ? 'positive' : 'negative'}" th:text="${#numbers.formatDecimal(report.sharpeRatio, 1, 2)}"></div>
-                    <div class="kpi-label">夏普比率</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card h-100">
-                <div class="card-body">
-                    <div class="kpi-value" th:classappend="${report.winRate > 0.5 ? 'positive' : 'negative'}" th:text="${#numbers.formatPercent(report.winRate, 1, 2)}"></div>
-                    <div class="kpi-label">胜率</div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="row text-center mb-4">
-        <div class="col-md-3">
-            <div class="card h-100">
-                <div class="card-body">
-                    <div class="kpi-value" th:text="${report.totalTrades}"></div>
-                    <div class="kpi-label">总交易次数</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card h-100">
-                <div class="card-body">
-                    <div class="kpi-value" th:classappend="${report.profitLossRatio > 1 ? 'positive' : 'negative'}" th:text="${#numbers.formatDecimal(report.profitLossRatio, 1, 2)}"></div>
-                    <div class="kpi-label">盈亏比</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card h-100">
-                <div class="card-body">
-                    <div class="kpi-value" th:text="${#numbers.formatDecimal(report.initialCapital, 1, 0, 'COMMA')}"></div>
-                    <div class="kpi-label">初始资金</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card h-100">
-                <div class="card-body">
-                    <div class="kpi-value" th:classappend="${report.finalCapital > report.initialCapital ? 'positive' : 'negative'}" th:text="${#numbers.formatDecimal(report.finalCapital, 1, 0, 'COMMA')}"></div>
-                    <div class="kpi-label">最终权益</div>
-                </div>
-            </div>
+        <!-- 成本分析 -->
+        <div class="metric-card" style="border-color: #6c757d;">
+            <h3>💰 成本分析</h3>
+            <ul>
+                <li><span class="label">总交易费用</span><span class="value" th:text="${totalCostStr}"></span></li>
+                <li><span class="label">平台使用费</span><span class="value" th:text="${totalPlatformFeeStr}"></span></li>
+                <li><span class="label">总佣金</span><span class="value" th:text="${totalCommissionStr}"></span></li>
+                <li><span class="label">总印花税</span><span class="value" th:text="${totalStampDutyStr}"></span></li>
+                <li>
+                    <span class="label">费用/收益比</span>
+                    <span class="value" th:text="${costToReturnRatioStr}"></span>
+                </li>
+            </ul>
         </div>
     </div>
 
-    <!-- 权益曲线图 -->
-    <div class="card mb-4">
-        <div class="card-header">权益曲线 (Equity Curve)</div>
-        <div class="card-body">
-            <div id="equityCurveChart" class="chart-container"></div>
-        </div>
+    <div class="chart-container">
+        <div id="equity-chart" style="width: 100%; height:500px;"></div>
     </div>
 
-    <!-- K线与买卖点 -->
-    <div class="card mb-4">
-        <div class="card-header">价格与买卖点</div>
-        <div class="card-body">
-            <div id="candlestickChart" class="chart-container"></div>
-        </div>
+    <div class="table-container">
+        <h2>交易历史</h2>
+        <table id="trades-table">
+            <thead>
+            <tr>
+                <th>创建时间</th>
+                <th>股票代码</th>
+                <th>方向</th>
+                <th>数量</th>
+                <th>价格</th>
+                <th>总费用</th>
+                <th>已实现盈亏</th>
+                <th>操作说明</th>
+            </tr>
+            </thead>
+            <tbody>
+            <!-- Trades will be rendered here by JavaScript -->
+            </tbody>
+        </table>
     </div>
-
-    <!-- 交易记录详情 -->
-    <div class="card mb-4">
-        <div class="card-header">交易记录</div>
-        <div class="card-body">
-            <table class="table table-striped table-hover">
-                <thead>
-                    <tr>
-                        <th>时间</th>
-                        <th>方向</th>
-                        <th>价格</th>
-                        <th>数量</th>
-                        <th>盈亏</th>
-                        <th>原因</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <tr th:each="order : ${tradeHistory}">
-                        <td th:text="${#temporals.format(order.createTime, 'yyyy-MM-dd HH:mm')}"></td>
-                        <td>
-                            <span th:text="${order.side.name()}" 
-                                  th:classappend="${order.side.name() == 'BUY' ? 'text-danger' : 'text-success'}" 
-                                  class="fw-bold"></span>
-                        </td>
-                        <td th:text="${order.executedPrice != null ? #numbers.formatDecimal(order.executedPrice, 1, 2) : #numbers.formatDecimal(order.price, 1, 2)}"></td>
-                        <td th:text="${order.quantity}"></td>
-                        <td>
-                            <span th:if="${order.realizedPnl != null}" 
-                                  th:text="${#numbers.formatDecimal(order.realizedPnl, 1, 2)}" 
-                                  th:classappend="${order.realizedPnl.compareTo(T(java.math.BigDecimal).ZERO) > 0 ? 'text-success' : 'text-danger'}"></span>
-                        </td>
-                        <td th:text="${order.rationale}"></td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <!-- TODO: 其他图表容器 -->
-
 </div>
-
-<!-- Bootstrap JS -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <script th:inline="javascript">
     /*<![CDATA[*/
+    const equitySnapshots = /*[[${equitySnapshots}]]*/ [];
+    const tradesData = /*[[${tradeHistory}]]*/ [];
+    const currencySymbol = /*[[${currencySymbol}]]*/ '¥';
 
-    // 1. 权益曲线图
-    var equityCurveChart = echarts.init(document.getElementById('equityCurveChart'));
-    var equityDates = /*[[${equityDates}]]*/ [];
-    var equityValues = /*[[${equityValues}]]*/ [];
-
-    var equityOption = {
-        tooltip: {
-            trigger: 'axis',
-            axisPointer: { type: 'cross' }
-        },
-        xAxis: {
-            type: 'category',
-            data: equityDates
-        },
-        yAxis: {
-            type: 'value',
-            scale: true,
-            axisLabel: { formatter: '{value}' }
-        },
-        series: [{
-            name: '总权益',
-            type: 'line',
-            data: equityValues,
-            smooth: true,
-            showSymbol: false,
-            lineStyle: { color: '#0d6efd' }
-        }]
-    };
-    equityCurveChart.setOption(equityOption);
-
-    // 2. K线与买卖点图
-    var candlestickChart = echarts.init(document.getElementById('candlestickChart'));
-    var klineDates = /*[[${klineDates}]]*/ [];
-    var ohlcValues = /*[[${ohlcValues}]]*/ [];
-    var buyPoints = /*[[${buyPoints}]]*/ [];
-    var sellPoints = /*[[${sellPoints}]]*/ [];
-
-    if (klineDates && klineDates.length > 0) {
-        var candlestickOption = {
-            tooltip: {
-                trigger: 'axis',
-                axisPointer: { type: 'cross' }
-            },
-            legend: {
-                data: ['K线', '买入', '卖出']
-            },
-            grid: {
-                left: '10%',
-                right: '10%',
-                bottom: '15%'
-            },
-            xAxis: {
-                type: 'category',
-                data: klineDates,
-                scale: true
-            },
-            yAxis: {
-                type: 'value',
-                scale: true,
-                splitArea: { show: true }
-            },
-            dataZoom: [
-                { type: 'inside', start: 50, end: 100 },
-                { show: true, type: 'slider', top: '90%', start: 50, end: 100 }
-            ],
-            series: [
-                {
-                    name: 'K线',
-                    type: 'candlestick',
-                    data: ohlcValues,
-                    itemStyle: {
-                        color: '#ef232a',
-                        color0: '#14b143',
-                        borderColor: '#ef232a',
-                        borderColor0: '#14b143'
-                    }
-                },
-                {
-                    name: '买入',
-                    type: 'scatter',
-                    symbol: 'arrow',
-                    symbolSize: 15,
-                    symbolRotate: 180,
-                    itemStyle: { color: '#dc3545' },
-                    data: buyPoints.map(p => ({ name: '买入', value: p, itemStyle: { color: '#dc3545' } }))
-                },
-                {
-                    name: '卖出',
-                    type: 'scatter',
-                    symbol: 'arrow',
-                    symbolSize: 15,
-                    itemStyle: { color: '#198754' },
-                    data: sellPoints.map(p => ({ name: '卖出', value: p, itemStyle: { color: '#198754' } }))
-                }
-            ]
+    // 渲染权益曲线图
+    if (equitySnapshots.length > 0) {
+        const equityChart = echarts.init(document.getElementById('equity-chart'));
+        const equityChartOption = {
+            title: { text: '权益曲线' },
+            tooltip: { trigger: 'axis' },
+            xAxis: { type: 'category', data: equitySnapshots.map(item => item.date) },
+            yAxis: { type: 'value', scale: true, axisLabel: { formatter: currencySymbol + '{value}' } },
+            series: [{ name: '总权益', type: 'line', data: equitySnapshots.map(item => item.totalValue.toFixed(2)), smooth: true }]
         };
-        candlestickChart.setOption(candlestickOption);
-    } else {
-        document.getElementById('candlestickChart').innerHTML = '<div class="alert alert-warning">无K线数据可供显示。</div>';
+        equityChart.setOption(equityChartOption);
     }
 
-    // 窗口大小改变时重绘图表
-    window.addEventListener('resize', function() {
-        equityCurveChart.resize();
-        if (candlestickChart) candlestickChart.resize();
-    });
+    // 渲染交易历史表格
+    function renderTradesTable(trades) {
+        const tableBody = document.querySelector("#trades-table tbody");
+        tableBody.innerHTML = ''; // Clear existing rows
+        if (!trades || trades.length === 0) return;
 
+        trades.forEach(trade => {
+            const row = tableBody.insertRow();
+            const pnlValue = trade.realizedPnl ? trade.realizedPnl.toFixed(2) : '-';
+            const pnlClass = trade.realizedPnl ? (trade.realizedPnl > 0 ? 'positive' : 'negative') : '';
+            const totalCostValue = trade.totalCost ? trade.totalCost.toFixed(2) : '0.00';
+
+            row.innerHTML = `
+                <td>${new Date(trade.createTime).toLocaleString()}</td>
+                <td>${trade.symbol}</td>
+                <td>${trade.side}</td>
+                <td>${trade.quantity}</td>
+                <td>${trade.price.toFixed(2)}</td>
+                <td>${totalCostValue}</td>
+                <td class="${pnlClass}">${pnlValue}</td>
+                <td>${trade.rationale}</td>
+            `;
+        });
+    }
+
+    renderTradesTable(tradesData);
     /*]]>*/
 </script>
 </body>

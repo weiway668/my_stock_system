@@ -63,7 +63,8 @@ public class PerformanceAnalyticsService {
             BigDecimal totalCommission,
             BigDecimal totalStampDuty,
             BigDecimal totalTradingFee,
-            BigDecimal totalSettlementFee
+            BigDecimal totalSettlementFee,
+            BigDecimal totalPlatformFee
     ) {
     }
 
@@ -136,14 +137,15 @@ public class PerformanceAnalyticsService {
         BigDecimal totalCost = completedTrades.stream().map(Order::getTotalCost).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal totalCommission = completedTrades.stream().map(Order::getCommission).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal totalStampDuty = completedTrades.stream().map(Order::getStampDuty).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal totalTradingFee = completedTrades.stream().map(Order::getTradingFee).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal totalSettlementFee = completedTrades.stream().map(Order::getSettlementFee).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalTradingFee = tradeHistory.stream().map(Order::getTradingFee).filter(java.util.Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalSettlementFee = tradeHistory.stream().map(Order::getSettlementFee).filter(java.util.Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalPlatformFee = tradeHistory.stream().map(Order::getPlatformFee).filter(java.util.Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
 
         return new PerformanceMetrics(
                 annualizedReturn, cumulativeReturn, sharpeRatio, sortinoRatio,
                 maxDrawdown, calmarRatio, winRate, profitLossRatio,
                 totalTrades, winningTrades, losingTrades, averageProfit, averageLoss,
-                totalCost, totalCommission, totalStampDuty, totalTradingFee, totalSettlementFee
+                totalCost, totalCommission, totalStampDuty, totalTradingFee, totalSettlementFee, totalPlatformFee
         );
     }
 
@@ -246,7 +248,8 @@ public class PerformanceAnalyticsService {
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
                 0, 0, 0, BigDecimal.ZERO, BigDecimal.ZERO,
-                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO
         );
     }
 }

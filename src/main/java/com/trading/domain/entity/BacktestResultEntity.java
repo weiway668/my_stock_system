@@ -101,6 +101,9 @@ public class BacktestResultEntity {
     @Column(precision = 18, scale = 4)
     private BigDecimal finalCapital;
 
+    @Column(precision = 18, scale = 4)
+    private BigDecimal totalReturn; // 绝对总收益
+
     // === 成本统计 ===
     @Column(precision = 18, scale = 4)
     private BigDecimal totalCost;
@@ -116,6 +119,9 @@ public class BacktestResultEntity {
 
     @Column(precision = 18, scale = 4)
     private BigDecimal totalSettlementFee;
+
+    @Column(precision = 18, scale = 4)
+    private BigDecimal totalPlatformFee; // 平台使用费
 
     @Lob
     @Column(columnDefinition = "TEXT")

@@ -212,11 +212,13 @@ public class BacktestEngine {
                     .averageLoss(metrics.averageLoss())
                     .initialCapital(portfolioManager.getInitialCash())
                     .finalCapital(portfolioManager.getCash())
+                    .totalReturn(portfolioManager.getCash().subtract(portfolioManager.getInitialCash()))
                     .totalCost(metrics.totalCost())
                     .totalCommission(metrics.totalCommission())
                     .totalStampDuty(metrics.totalStampDuty())
                     .totalTradingFee(metrics.totalTradingFee())
                     .totalSettlementFee(metrics.totalSettlementFee())
+                    .totalPlatformFee(metrics.totalPlatformFee())
                     .dailyEquityChartData(dailyEquityJson)
                     .tradeHistoryData(tradeHistoryJson)
                     .build();
