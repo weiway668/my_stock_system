@@ -22,6 +22,7 @@ public class TechnicalIndicators {
     // Moving Averages
     private BigDecimal ema20;      // 20-period Exponential Moving Average
     private BigDecimal ema50;      // 50-period Exponential Moving Average
+    private BigDecimal sma5;       // 5-period Simple Moving Average
     private BigDecimal sma20;      // 20-period Simple Moving Average
     private BigDecimal sma50;      // 50-period Simple Moving Average
     

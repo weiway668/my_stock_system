@@ -74,6 +74,45 @@ public class TechnicalAnalysisService {
     private static final int DEFAULT_MFI_PERIOD = 14;
 
     /**
+     * 使用提供的BarSeries计算技术指标列表
+     * 
+     * @param series Bar序列
+     * @return 技术指标列表
+     */
+    public List<TechnicalIndicators> calculateIndicators(BarSeries series) {
+        if (series == null || series.isEmpty()) {
+            return List.of();
+        }
+
+        // 计算各种指标
+        ClosePriceIndicator closePrice = new ClosePriceIndicator(series);
+        SMAIndicator sma5 = new SMAIndicator(closePrice, 5);
+        SMAIndicator sma20 = new SMAIndicator(closePrice, 20);
+        MACDIndicator macd = new MACDIndicator(closePrice, 12, 26);
+        EMAIndicator macdSignal = new EMAIndicator(macd, 9);
+        RSIIndicator rsi = new RSIIndicator(closePrice, 14);
+        BollingerBandsMiddleIndicator bbMiddle = new BollingerBandsMiddleIndicator(new SMAIndicator(closePrice, 20));
+        StandardDeviationIndicator bbStdDev = new StandardDeviationIndicator(closePrice, 20);
+        BollingerBandsUpperIndicator bbUpper = new BollingerBandsUpperIndicator(bbMiddle, bbStdDev);
+        BollingerBandsLowerIndicator bbLower = new BollingerBandsLowerIndicator(bbMiddle, bbStdDev);
+
+        java.util.ArrayList<TechnicalIndicators> results = new java.util.ArrayList<>();
+        for (int i = 0; i < series.getBarCount(); i++) {
+            results.add(TechnicalIndicators.builder()
+                    .sma5(toBigDecimal(sma5.getValue(i)))
+                    .sma20(toBigDecimal(sma20.getValue(i)))
+                    .macdLine(toBigDecimal(macd.getValue(i)))
+                    .signalLine(toBigDecimal(macdSignal.getValue(i)))
+                    .rsi(toBigDecimal(rsi.getValue(i)))
+                    .upperBand(toBigDecimal(bbUpper.getValue(i)))
+                    .lowerBand(toBigDecimal(bbLower.getValue(i)))
+                    .middleBand(toBigDecimal(bbMiddle.getValue(i)))
+                    .build());
+        }
+        return results;
+    }
+
+    /**
      * 计算技术指标
      */
     public CompletableFuture<TechnicalIndicators> calculateIndicators(
