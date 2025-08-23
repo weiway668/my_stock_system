@@ -287,7 +287,7 @@ public class BacktestEngine {
     private List<MarketData> fetchHistoricalData(BacktestRequest request, LocalDateTime startTime) {
         try {
             String timeframe = request.getTimeframe() != null ? request.getTimeframe() : "1d";
-            return marketDataService.getOhlcvData(request.getSymbol(), timeframe, startTime, request.getEndTime(), 20000).get();
+            return marketDataService.getOhlcvData(request.getSymbol(), timeframe, startTime, request.getEndTime(), 20000, request.getRehabType()).get();
         } catch (Exception e) {
             log.error("获取历史数据失败", e);
             return new ArrayList<>();
@@ -424,6 +424,7 @@ public class BacktestEngine {
                 .quantity(quantity)
                 .status(OrderStatus.PENDING)
                 .createTime(marketData.getTimestamp())
+                .rationale(signal.getReason()) // 保存交易理由
                 .build();
     }
 

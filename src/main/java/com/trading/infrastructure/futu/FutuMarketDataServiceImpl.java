@@ -173,11 +173,14 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
         }
     }
 
+    
+
     @Override
     public List<FutuKLine> getHistoricalKLine(String symbol,
             LocalDate startDate,
             LocalDate endDate,
-            FutuMarketDataService.KLineType ktype) {
+            FutuMarketDataService.KLineType ktype,
+            QotCommon.RehabType rehabType) {
 
         try {
             log.debug("获取历史K线: symbol={}, start={}, end={}, type={}",
@@ -207,7 +210,7 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
                     QotRequestHistoryKL.Response response = webSocketClient.requestHistoryKLSync(
                             security,
                             QotCommon.KLType.forNumber(convertKLineType(ktype)),
-                            QotCommon.RehabType.RehabType_None,
+                            rehabType, // 使用传入的复权类型
                             startDate.toString() + " 00:00:00",
                             endDate.toString() + " 23:59:59",
                             1000, // 每页最多1000条
@@ -226,7 +229,7 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
                         log.info("第{}页: 收到{}条K线数据", pageCount + 1, response.getS2C().getKlListCount());
 
                         // 转换并添加K线数据
-                        List<FutuKLine> pageKlines = convertKLineData(response.getS2C().getKlListList(), symbol, ktype);
+                        List<FutuKLine> pageKlines = convertKLineData(response.getS2C().getKlListList(), symbol, ktype, rehabType);
                         allKlines.addAll(pageKlines);
 
                         // 检查是否有下一页
@@ -265,11 +268,19 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
         }
     }
 
+    private FutuKLine.RehabType convertRehabType(QotCommon.RehabType rehabType) {
+        return switch (rehabType) {
+            case RehabType_Forward -> FutuKLine.RehabType.FORWARD;
+            case RehabType_Backward -> FutuKLine.RehabType.BACKWARD;
+            default -> FutuKLine.RehabType.NONE;
+        };
+    }
+
     /**
      * 转换K线数据列表
      */
     private List<FutuKLine> convertKLineData(List<QotCommon.KLine> klList, String symbol,
-            FutuMarketDataService.KLineType ktype) {
+            FutuMarketDataService.KLineType ktype, QotCommon.RehabType rehabType) {
         List<FutuKLine> klines = new ArrayList<>();
 
         for (QotCommon.KLine kl : klList) {
@@ -298,7 +309,7 @@ public class FutuMarketDataServiceImpl implements FutuMarketDataService {
                         .changeRate(BigDecimal.valueOf(changeRate))
                         .turnoverRate(kl.hasTurnoverRate() ? BigDecimal.valueOf(kl.getTurnoverRate()) : BigDecimal.ZERO)
                         .preClose(BigDecimal.valueOf(preClose))
-                        .rehabType(FutuKLine.RehabType.NONE)
+                        .rehabType(convertRehabType(rehabType))
                         .build();
 
                 klines.add(futuKLine);

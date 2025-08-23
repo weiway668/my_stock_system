@@ -42,6 +42,7 @@ import com.trading.config.IndicatorParameters;
 import com.trading.domain.entity.MarketData;
 import com.trading.domain.vo.TechnicalIndicators;
 import com.trading.infrastructure.cache.CacheService;
+import com.trading.infrastructure.futu.model.FutuKLine.RehabType;
 import com.trading.service.MarketDataService;
 
 import cn.hutool.core.date.DateUtil;
@@ -96,7 +97,7 @@ public class TechnicalAnalysisService {
                 LocalDateTime startTime = endTime.minusDays(dataPoints);
 
                 List<MarketData> historicalData = marketDataService.getOhlcvData(
-                        symbol, timeframe, startTime, endTime, dataPoints).get(10, TimeUnit.SECONDS);
+                        symbol, timeframe, startTime, endTime, dataPoints, RehabType.FORWARD).get(10, TimeUnit.SECONDS);
 
                 if (historicalData == null || historicalData.size() < 30) {
                     log.warn("历史数据不足，无法计算技术指标: symbol={}", symbol);
@@ -845,7 +846,8 @@ public class TechnicalAnalysisService {
 
             int dataSize = historicalData.size();
             LocalDateTime timestamp = historicalData.get(dataSize - 1).getTimestamp();
-            log.debug("开始计算技术指标: symbol={}, time={}, 使用{}条历史K线", symbol, DateUtil.formatLocalDateTime(timestamp), dataSize);
+            log.debug("开始计算技术指标: symbol={}, time={}, 使用{}条历史K线", symbol, DateUtil.formatLocalDateTime(timestamp),
+                    dataSize);
 
             // 检查数据充足性并给出警告
             if (dataSize < DEFAULT_MACD_LONG + DEFAULT_MACD_SIGNAL) { // MACD需要35条
@@ -917,7 +919,8 @@ public class TechnicalAnalysisService {
                     .build();
 
             log.debug("技术指标计算成功: symbol={}, time={}, dataSize={}, RSI={}, MACD={}",
-                    symbol, DateUtil.formatLocalDateTime(timestamp), historicalData.size(), indicators.getRsi(), indicators.getMacdLine());
+                    symbol, DateUtil.formatLocalDateTime(timestamp), historicalData.size(), indicators.getRsi(),
+                    indicators.getMacdLine());
 
             return indicators;
 

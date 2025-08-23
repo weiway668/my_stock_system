@@ -74,6 +74,9 @@ public class Order {
     
     @Column(length = 50)
     private String strategyName;
+
+    @Column(length = 255)
+    private String rationale; // 交易理由
     
     // Execution information
     @Column(precision = 10, scale = 2)

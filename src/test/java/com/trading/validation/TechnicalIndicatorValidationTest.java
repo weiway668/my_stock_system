@@ -16,6 +16,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
 import com.trading.domain.entity.MarketData;
+import com.trading.infrastructure.futu.model.FutuKLine.RehabType;
 import com.trading.service.MarketDataService;
 import com.trading.strategy.TechnicalAnalysisService;
 
@@ -63,7 +64,8 @@ public class TechnicalIndicatorValidationTest {
                 timeframe,
                 startTime,
                 endTime,
-                dataSize  // 使用动态计算的数据量
+                dataSize,  // 使用动态计算的数据量
+                RehabType.FORWARD
             );
             
             List<MarketData> marketDataList = dataFuture.get(30, TimeUnit.SECONDS);
@@ -140,7 +142,8 @@ public class TechnicalIndicatorValidationTest {
                 "1d",
                 startTime,
                 endTime,
-                60  // 获取60条数据
+                60,  // 获取60条数据
+                RehabType.FORWARD
             );
             
             List<MarketData> testData = dataFuture.get(30, TimeUnit.SECONDS);

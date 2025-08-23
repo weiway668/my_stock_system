@@ -93,6 +93,27 @@ public interface HistoricalDataRepository extends JpaRepository<HistoricalKLineE
                                                          @Param("rehabType") RehabType rehabType,
                                                          @Param("startTime") LocalDateTime startTime,
                                                          @Param("endTime") LocalDateTime endTime);
+
+    /**
+     * 查询指定时间范围内的所有K线数据（不区分类型）
+     *
+     * @param symbol 股票代码
+     * @param startTime 开始时间
+     * @param endTime 结束时间
+     * @return K线数据列表
+     */
+    List<HistoricalKLineEntity> findBySymbolAndTimestampBetweenOrderByTimestampAsc(String symbol, LocalDateTime startTime, LocalDateTime endTime);
+
+    /**
+     * 删除指定时间范围内的K线数据
+     *
+     * @param symbol 股票代码
+     * @param startTime 开始时间
+     * @param endTime 结束时间
+     */
+    @Transactional
+    @Modifying
+    void deleteBySymbolAndTimestampBetween(String symbol, LocalDateTime startTime, LocalDateTime endTime);
     
     /**
      * 统计指定时间范围内的数据数量

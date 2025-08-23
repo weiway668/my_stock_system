@@ -177,6 +177,34 @@ public interface HistoricalDataService {
             KLineType kLineType,
             RehabType rehabType
     );
+
+    /**
+     * 获取指定日期的所有K线记录
+     *
+     * @param symbol 股票代码
+     * @param date   查询日期
+     * @return K线数据列表
+     */
+    List<com.trading.domain.entity.HistoricalKLineEntity> getRecordsForDate(String symbol, LocalDate date);
+
+    /**
+     * 获取指定日期范围内的所有K线记录
+     *
+     * @param symbol 股票代码
+     * @param fromDate 开始日期
+     * @param toDate   结束日期
+     * @return K线数据列表
+     */
+    List<com.trading.domain.entity.HistoricalKLineEntity> getRecordsForDateRange(String symbol, LocalDate fromDate, LocalDate toDate);
+
+    /**
+     * 删除指定时间范围内的历史数据
+     *
+     * @param symbol 股票代码
+     * @param fromDate 开始日期
+     * @param toDate   结束日期
+     */
+    void deleteHistoricalData(String symbol, LocalDate fromDate, LocalDate toDate);
     
     // ==================== 数据结构定义 ====================
     

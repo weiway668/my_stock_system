@@ -2,6 +2,7 @@ package com.trading.backtest;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.trading.infrastructure.futu.model.FutuKLine.RehabType;
 import com.trading.strategy.TradingStrategy;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -133,6 +134,13 @@ public class BacktestRequest {
     @JsonProperty("indicator_history_lookback")
     @Builder.Default
     private int indicatorHistoryLookback = 20;
+
+    /**
+     * 复权类型
+     */
+    @JsonProperty("rehab_type")
+    @Builder.Default
+    private RehabType rehabType = RehabType.FORWARD; // 默认使用前复权
     
     /**
      * 创建默认的港股回测请求

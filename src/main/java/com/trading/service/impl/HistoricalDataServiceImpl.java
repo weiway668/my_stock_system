@@ -75,8 +75,7 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
     @Value("${historical-data.download.retry-delay:5000}")
     private long retryDelay;
 
-    @Autowired
-    @Lazy
+    @Autowired @Lazy
     public void setCorporateActionService(CorporateActionService corporateActionService) {
         this.corporateActionService = corporateActionService;
     }
@@ -89,70 +88,26 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
             KLineType kLineType,
             RehabType rehabType) {
 
-        log.debug("获取K线数据: symbol={}, period={}-{}, kLineType={}, rehabType={}",
+        log.debug("从Futu获取K线数据: symbol={}, period={}-{}, kLineType={}, rehabType={}",
                 symbol, startDate, endDate, kLineType, rehabType);
 
-        List<HistoricalKLineEntity> rawKLines = historicalDataRepository.findBySymbolAndTimeRange(
-                symbol, kLineType, RehabType.NONE, startDate.atStartOfDay(), endDate.atTime(23, 59, 59));
+        // 直接从Futu服务获取可能已复权的数据
+        List<FutuKLine> futuKLines = futuMarketDataService.getHistoricalKLine(
+                symbol, startDate, endDate, convertToFutuKLineType(kLineType), convertToFutuRehabType(rehabType));
 
-        if (rehabType == RehabType.NONE || rawKLines.isEmpty()) {
-            return rawKLines;
+        if (futuKLines.isEmpty()) {
+            log.warn("从Futu未获取到任何K线数据: symbol={}", symbol);
+            return new ArrayList<>();
         }
 
-        List<CorporateActionEntity> corporateActions = corporateActionRepository
-                .findByStockCodeOrderByExDividendDateDesc(symbol);
-        if (corporateActions.isEmpty()) {
-            log.info("本地未找到股票 {} 的复权因子，将尝试从Futu实时获取...", symbol);
-            corporateActionService.processAndSaveCorporateActionForStock(symbol);
-            // 再次查询
-            corporateActions = corporateActionRepository.findByStockCodeOrderByExDividendDateDesc(symbol);
+        // 将Futu模型转换为数据库实体
+        List<HistoricalKLineEntity> entities = convertToEntities(futuKLines, MarketType.fromSymbol(symbol), kLineType, rehabType);
+        log.info("成功从Futu获取并转换了 {} 条K线数据", entities.size());
 
-            if (corporateActions.isEmpty()) {
-                log.warn("尝试获取后，股票 {} 仍无复权因子信息，将返回原始数据", symbol);
-                return rawKLines;
-            }
-        }
-
-        if (rehabType == RehabType.BACKWARD) {
-            return applyBackwardAdjustment(rawKLines, corporateActions);
-        } else {
-            // 前复权或其他类型暂未实现
-            log.warn("暂不支持的复权类型: {}, 将返回原始数据", rehabType);
-            return rawKLines;
-        }
+        return entities;
     }
 
-    private List<HistoricalKLineEntity> applyBackwardAdjustment(List<HistoricalKLineEntity> rawKLines,
-            List<CorporateActionEntity> corporateActions) {
-        log.debug("开始应用后复权调整，原始K线数量: {}, 复权因子数量: {}", rawKLines.size(), corporateActions.size());
-        List<HistoricalKLineEntity> adjustedKLines = new ArrayList<>();
-
-        for (HistoricalKLineEntity kLine : rawKLines) {
-            BigDecimal cumulativeFactor = BigDecimal.ONE;
-            for (CorporateActionEntity action : corporateActions) {
-                // 后复权：如果K线日期在复权日之前，则需要应用该因子
-                if (kLine.getTimestamp().toLocalDate().isBefore(action.getExDividendDate())) {
-                    cumulativeFactor = cumulativeFactor.multiply(BigDecimal.valueOf(action.getBackwardAdjFactor()));
-                }
-            }
-
-            if (cumulativeFactor.compareTo(BigDecimal.ONE) != 0) {
-                HistoricalKLineEntity adjustedKLine = kLine.toBuilder()
-                        .open(kLine.getOpen().multiply(cumulativeFactor).setScale(3, RoundingMode.HALF_UP))
-                        .high(kLine.getHigh().multiply(cumulativeFactor).setScale(3, RoundingMode.HALF_UP))
-                        .low(kLine.getLow().multiply(cumulativeFactor).setScale(3, RoundingMode.HALF_UP))
-                        .close(kLine.getClose().multiply(cumulativeFactor).setScale(3, RoundingMode.HALF_UP))
-                        .rehabType(RehabType.BACKWARD)
-                        .build();
-                adjustedKLines.add(adjustedKLine);
-            } else {
-                // 如果没有应用任何因子，则添加原始K线
-                adjustedKLines.add(kLine);
-            }
-        }
-        log.debug("后复权调整完成，生成K线数量: {}", adjustedKLines.size());
-        return adjustedKLines;
-    }
+    
 
     @Override
     public CompletableFuture<BatchDownloadResult> downloadBatchHistoricalData(
@@ -263,7 +218,7 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
             try {
                 // 获取FUTU历史数据
                 List<FutuKLine> futuKLines = futuMarketDataService.getHistoricalKLine(
-                        symbol, startDate, endDate, convertToFutuKLineType(kLineType));
+                        symbol, startDate, endDate, convertToFutuKLineType(kLineType), convertToFutuRehabType(rehabType));
 
                 if (futuKLines.isEmpty()) {
                     log.warn("未获取到历史数据: symbol={}", symbol);
@@ -274,7 +229,7 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
                             "未获取到历史数据", System.currentTimeMillis() - startTime);
                 }
 
-                // 转换并保存数据
+                // 转换并保存数据，强制使用不复权类型
                 List<HistoricalKLineEntity> entities = convertToEntities(futuKLines, market, kLineType, rehabType);
                 int savedCount = saveHistoricalData(entities);
 
@@ -669,6 +624,14 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
         return batches;
     }
 
+    private com.futu.openapi.pb.QotCommon.RehabType convertToFutuRehabType(RehabType rehabType) {
+        return switch (rehabType) {
+            case FORWARD -> com.futu.openapi.pb.QotCommon.RehabType.RehabType_Forward;
+            case BACKWARD -> com.futu.openapi.pb.QotCommon.RehabType.RehabType_Backward;
+            default -> com.futu.openapi.pb.QotCommon.RehabType.RehabType_None;
+        };
+    }
+
     private FutuMarketDataService.KLineType convertToFutuKLineType(KLineType kLineType) {
         return switch (kLineType) {
             case K_1MIN -> FutuMarketDataService.KLineType.K_1MIN;
@@ -874,5 +837,28 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
         } else {
             return "数据质量较差，建议重新下载全部数据";
         }
+    }
+
+    @Override
+    public List<HistoricalKLineEntity> getRecordsForDate(String symbol, LocalDate date) {
+        return getRecordsForDateRange(symbol, date, date);
+    }
+
+    @Override
+    public List<HistoricalKLineEntity> getRecordsForDateRange(String symbol, LocalDate fromDate, LocalDate toDate) {
+        LocalDateTime startOfDay = fromDate.atStartOfDay();
+        // 包含当天，所以结束时间是 toDate 的后一天的开始
+        LocalDateTime endOfDay = toDate.plusDays(1).atStartOfDay();
+        log.debug("正在从数据库查询符号 {} 在 {} (含) 和 {} (不含) 之间的数据", symbol, startOfDay, endOfDay);
+        return historicalDataRepository.findBySymbolAndTimestampBetweenOrderByTimestampAsc(symbol, startOfDay, endOfDay);
+    }
+
+    @Override
+    @Transactional
+    public void deleteHistoricalData(String symbol, LocalDate fromDate, LocalDate toDate) {
+        LocalDateTime startOfDay = fromDate.atStartOfDay();
+        LocalDateTime endOfDay = toDate.plusDays(1).atStartOfDay();
+        log.info("正在删除符号 {} 在 {} (含) 和 {} (不含) 之间的数据", symbol, startOfDay, endOfDay);
+        historicalDataRepository.deleteBySymbolAndTimestampBetween(symbol, startOfDay, endOfDay);
     }
 }

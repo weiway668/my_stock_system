@@ -1,4 +1,5 @@
 package com.trading.infrastructure.futu;
+
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Set;
@@ -37,12 +38,30 @@ public interface FutuMarketDataService {
      * @param startDate 开始日期
      * @param endDate   结束日期
      * @param ktype     K线类型 (日线、小时线等)
+     * @param rehabType 复权类型
      * @return K线数据列表
      */
     List<FutuKLine> getHistoricalKLine(String symbol,
             LocalDate startDate,
             LocalDate endDate,
-            KLineType ktype);
+            KLineType ktype,
+            com.futu.openapi.pb.QotCommon.RehabType rehabType);
+
+    /**
+     * 获取历史K线数据 (默认使用前复权)
+     * 
+     * @param symbol    股票代码
+     * @param startDate 开始日期
+     * @param endDate   结束日期
+     * @param ktype     K线类型 (日线、小时线等)
+     * @return K线数据列表
+     */
+    default List<FutuKLine> getHistoricalKLine(String symbol,
+            LocalDate startDate,
+            LocalDate endDate,
+            KLineType ktype) {
+        return getHistoricalKLine(symbol, startDate, endDate, ktype, com.futu.openapi.pb.QotCommon.RehabType.RehabType_Forward);
+    }
 
     /**
      * 获取订单簿数据
@@ -145,6 +164,23 @@ public interface FutuMarketDataService {
 
         public long getIntervalMinutes() {
             return intervalMinutes;
+        }
+
+        public static KLineType fromString(String timeframe) {
+            if (timeframe == null) {
+                return K_DAY; // 默认返回日K
+            }
+            return switch (timeframe.toLowerCase()) {
+                case "1m", "1min" -> K_1MIN;
+                case "5m", "5min" -> K_5MIN;
+                case "15m", "15min" -> K_15MIN;
+                case "30m", "30min" -> K_30MIN;
+                case "60m", "1h", "60min" -> K_60MIN;
+                case "1d", "day" -> K_DAY;
+                case "1w", "week" -> K_WEEK;
+                case "1mon", "month" -> K_MONTH;
+                default -> throw new IllegalArgumentException("未知的K线类型: " + timeframe);
+            };
         }
     }
 

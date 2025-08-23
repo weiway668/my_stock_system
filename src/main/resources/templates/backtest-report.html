@@ -131,6 +131,43 @@
         </div>
     </div>
 
+    <!-- 交易记录详情 -->
+    <div class="card mb-4">
+        <div class="card-header">交易记录</div>
+        <div class="card-body">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>时间</th>
+                        <th>方向</th>
+                        <th>价格</th>
+                        <th>数量</th>
+                        <th>盈亏</th>
+                        <th>原因</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr th:each="order : ${tradeHistory}">
+                        <td th:text="${#temporals.format(order.createTime, 'yyyy-MM-dd HH:mm')}"></td>
+                        <td>
+                            <span th:text="${order.side.name()}" 
+                                  th:classappend="${order.side.name() == 'BUY' ? 'text-danger' : 'text-success'}" 
+                                  class="fw-bold"></span>
+                        </td>
+                        <td th:text="${order.executedPrice != null ? #numbers.formatDecimal(order.executedPrice, 1, 2) : #numbers.formatDecimal(order.price, 1, 2)}"></td>
+                        <td th:text="${order.quantity}"></td>
+                        <td>
+                            <span th:if="${order.realizedPnl != null}" 
+                                  th:text="${#numbers.formatDecimal(order.realizedPnl, 1, 2)}" 
+                                  th:classappend="${order.realizedPnl.compareTo(T(java.math.BigDecimal).ZERO) > 0 ? 'text-success' : 'text-danger'}"></span>
+                        </td>
+                        <td th:text="${order.rationale}"></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
     <!-- TODO: 其他图表容器 -->
 
 </div>

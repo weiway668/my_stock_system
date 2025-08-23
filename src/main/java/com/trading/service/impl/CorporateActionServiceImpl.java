@@ -74,6 +74,7 @@ public class CorporateActionServiceImpl implements CorporateActionService {
             try {
                 LocalDate exDate = LocalDate.parse(rehab.getTime());
                 // 为获取前收盘价，查询除权日前5天到前1天的数据
+                log.debug("为获取股票{}前收盘价，查询除权日{}前5天到前1天的数据", stockCode, exDate);
                 List<HistoricalKLineEntity> klines = historicalDataService.getHistoricalKLine(
                         stockCode, exDate.minusDays(5), exDate.minusDays(1), 
                         FutuMarketDataService.KLineType.K_DAY, FutuKLine.RehabType.NONE);

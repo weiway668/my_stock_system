@@ -1,6 +1,7 @@
 package com.trading.validation;
 
 import com.trading.domain.entity.MarketData;
+import com.trading.infrastructure.futu.model.FutuKLine.RehabType;
 import com.trading.service.MarketDataService;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.DisplayName;
@@ -59,7 +60,8 @@ public class MultiTimeframeValidationTest {
                 timeframe,
                 startTime,
                 endTime,
-                dataSize
+                dataSize,
+                RehabType.FORWARD
             );
             
             List<MarketData> marketDataList = dataFuture.get(30, TimeUnit.SECONDS);

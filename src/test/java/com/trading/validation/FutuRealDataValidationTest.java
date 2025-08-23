@@ -3,6 +3,7 @@ package com.trading.validation;
 import com.trading.domain.entity.MarketData;
 import com.trading.infrastructure.futu.FutuMarketDataService;
 import com.trading.infrastructure.futu.model.FutuKLine;
+import com.trading.infrastructure.futu.model.FutuKLine.RehabType;
 import com.trading.service.MarketDataService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
@@ -107,7 +108,8 @@ public class FutuRealDataValidationTest {
                 "1d",
                 startTime,
                 endTime,
-                100
+                100,
+                RehabType.FORWARD
             );
             
             List<MarketData> marketDataList = dataFuture.get(30, TimeUnit.SECONDS);

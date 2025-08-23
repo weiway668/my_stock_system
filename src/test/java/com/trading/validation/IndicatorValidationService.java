@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 
 import com.trading.domain.entity.MarketData;
 import com.trading.domain.vo.TechnicalIndicators;
+import com.trading.infrastructure.futu.model.FutuKLine.RehabType;
 import com.trading.service.MarketDataService;
 import com.trading.strategy.TechnicalAnalysisService;
 
@@ -124,7 +125,7 @@ public class IndicatorValidationService {
                 
                 // 获取历史K线数据
                 List<MarketData> historicalData = marketDataService.getOhlcvData(
-                    symbol, "1d", startTime, endTime, days + 20
+                    symbol, "1d", startTime, endTime, days + 20,RehabType.FORWARD
                 ).get(30, TimeUnit.SECONDS);
                 
                 if (historicalData == null || historicalData.isEmpty()) {
