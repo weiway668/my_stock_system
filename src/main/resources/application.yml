@@ -165,21 +165,38 @@ trading:
 
     bollinger-band:
       enabled: true
-      period: 20
-      std-dev: 2.0
-      # 均值回归子策略
+      # 自适应策略使用的多套布林带参数
+      parameter-sets:
+        - key: "ranging"  # 盘整市：标准参数
+          period: 20
+          std-dev: 2.0
+        - key: "trending" # 趋势市：收紧参数，更灵敏
+          period: 10
+          std-dev: 1.5
+        - key: "volatile" # 高波动：放宽参数，减少噪音
+          period: 30
+          std-dev: 2.5
+      # 自适应策略本身的参数
+      adaptive:
+        enabled: true
+        adx-threshold: 25.0
+        atr-ratio-threshold: 0.015
+        trending-params-key: "trending"
+        ranging-params-key: "ranging"
+        volatile-params-key: "volatile"
+      # 均值回归子策略 (可被自适应策略调用)
       mean-reversion:
         enabled: true
-        min-buy-score: 80 # 提高买入阈值，只有接近下轨才买入
+        min-buy-score: 80
         position-size-ratio: 0.95
-        expansion-threshold: 1.5 # 带宽放大超过历史均值1.5倍时，暂停交易
-      # 挤压突破子策略
+        expansion-threshold: 1.5
+      # 挤压突破子策略 (可被自适应策略调用)
       squeeze-breakout:
-        enabled: true # 启用挤压突破策略
-        squeeze-threshold: 0.015 # 带宽小于1.5%视为挤压
-        min-squeeze-periods: 5    # 至少挤压5个周期
-        breakout-lookback: 10   # 用来检测挤压和突破的回看周期
-        expansion-factor: 0.2   # 带宽扩张超过20%视为突破
+        enabled: true
+        squeeze-threshold: 0.015
+        min-squeeze-periods: 5
+        breakout-lookback: 10
+        expansion-factor: 0.2
         volume-multiplier: 1.5  # 突破时成交量需要放大1.5倍
       
     volume:

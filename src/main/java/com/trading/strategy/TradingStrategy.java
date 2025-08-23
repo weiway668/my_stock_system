@@ -1,15 +1,15 @@
 package com.trading.strategy;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+
 import com.trading.domain.entity.MarketData;
 import com.trading.domain.entity.Order;
 import com.trading.domain.entity.Position;
 import com.trading.domain.enums.OrderType;
 import com.trading.domain.vo.TechnicalIndicators;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Map;
 
 /**
  * 交易策略接口
@@ -103,6 +103,11 @@ public interface TradingStrategy {
      * @param parameters 新的参数
      */
     void updateParameters(Map<String, Object> parameters);
+
+    /**
+     * 策略销毁
+     */
+    void destroy();
     
     /**
      * 交易信号

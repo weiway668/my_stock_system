@@ -311,4 +311,9 @@ public class MACDTradingStrategy extends AbstractTradingStrategy {
         
         return confidence;
     }
+
+    @Override
+    protected void doDestroy() {
+        // TODO Auto-generated method stub
+    }
 }
