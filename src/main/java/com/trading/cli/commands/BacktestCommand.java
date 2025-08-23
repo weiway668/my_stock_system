@@ -11,8 +11,6 @@ import com.trading.infrastructure.futu.FutuMarketDataService.KLineType;
 import com.trading.service.HistoricalDataService;
 import com.trading.service.HistoricalDataService.DataIntegrityReport;
 import com.trading.strategy.TradingStrategy;
-import com.trading.strategy.impl.MACDTradingStrategy;
-import com.trading.strategy.impl.BollingerBandMeanReversionStrategy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.cli.CommandLine;
@@ -28,16 +26,25 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class BacktestCommand extends AbstractCommand {
 
     private final BacktestEngine backtestEngine;
     private final BacktestReportGenerator reportGenerator;
     private final HistoricalDataService historicalDataService;
+    private final Map<String, TradingStrategy> strategies;
+
+    public BacktestCommand(BacktestEngine backtestEngine, BacktestReportGenerator reportGenerator,
+            HistoricalDataService historicalDataService, Map<String, TradingStrategy> strategies) {
+        this.backtestEngine = backtestEngine;
+        this.reportGenerator = reportGenerator;
+        this.historicalDataService = historicalDataService;
+        this.strategies = strategies;
+    }
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter DATETIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -267,17 +274,12 @@ public class BacktestCommand extends AbstractCommand {
     }
 
     private TradingStrategy createStrategy(String strategyName) throws CommandException {
-        switch (strategyName.toUpperCase()) {
-            case "MACD":
-                return new MACDTradingStrategy();
-            case "BOLL":
-                return new BollingerBandMeanReversionStrategy();
-            case "VOLUME":
-                throw CommandException.invalidArgument(getName(), null, "VOLUME策略暂未实现");
-            default:
-                throw CommandException.invalidArgument(getName(), null,
-                        "不支持的策略: " + strategyName + ", 支持的策略: MACD, BOLL, VOLUME");
+        TradingStrategy strategy = strategies.get(strategyName.toUpperCase());
+        if (strategy == null) {
+            throw CommandException.invalidArgument(getName(), null,
+                    "不支持的策略: " + strategyName + ", 支持的策略: " + String.join(", ", strategies.keySet()));
         }
+        return strategy;
     }
 
     private LocalDateTime parseDateTime(String dateStr) throws CommandException {

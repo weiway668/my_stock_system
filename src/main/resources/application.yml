@@ -162,6 +162,15 @@ trading:
       period: 20
       std-dev: 2.0
       squeeze-threshold: 0.015
+
+    bollinger-band:
+      enabled: true
+      period: 20
+      std-dev: 2.0
+      min-buy-score: 80 # 提高买入阈值，只有接近下轨才买入
+      trend-lookback: 5
+      trend-threshold: -0.05
+      position-size-ratio: 0.95
       
     volume:
       enabled: true

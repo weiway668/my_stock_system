@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Component;
 
+import com.trading.config.BollingerBandConfig;
 import com.trading.domain.entity.MarketData;
 import com.trading.domain.entity.Order;
 import com.trading.domain.entity.Position;
@@ -25,19 +26,21 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Component("BOLL")
 public class BollingerBandMeanReversionStrategy extends AbstractTradingStrategy {
+
+    private final BollingerBandConfig config;
+
+    public BollingerBandMeanReversionStrategy(BollingerBandConfig config) {
+        this.config = config;
+    }
     
     @Override
     protected void doInitialize() {
-        log.info("初始化布林带均值回归策略");
+        log.info("初始化布林带均值回归策略，配置: {}", config);
     }
     
     protected void doDestroy() {
         log.info("销毁布林带均值回归策略");
     }
-    
-    // 布林带参数
-    private static final int BB_PERIOD = 20;  // 20日均线
-    private static final double BB_STD = 2.0;  // 2倍标准差
     
     // 位置评分系统
     private static final Map<String, Integer> POSITION_SCORES = new HashMap<>();
@@ -51,15 +54,6 @@ public class BollingerBandMeanReversionStrategy extends AbstractTradingStrategy 
         POSITION_SCORES.put("above_upper", -100);     // 上轨以上：强烈禁止
     }
     
-    // 策略参数
-    private BigDecimal positionSizeRatio = BigDecimal.valueOf(0.95); // 使用95%的资金
-    private BigDecimal minBuyScore = BigDecimal.valueOf(60);  // 最低买入分数
-    private BigDecimal maxSellScore = BigDecimal.valueOf(20); // 最高卖出分数
-    
-    // 趋势判断参数
-    private int trendLookback = 5;  // 趋势回看天数
-    private BigDecimal trendThreshold = BigDecimal.valueOf(-0.05); // 下跌趋势阈值
-    
     @Override
     public String getName() {
         return "布林带均值回归策略";
@@ -67,7 +61,7 @@ public class BollingerBandMeanReversionStrategy extends AbstractTradingStrategy 
     
     @Override
     public TradingSignal generateSignal(MarketData marketData, List<TechnicalIndicators> indicatorHistory, List<Position> positions) {
-        if (indicatorHistory == null || indicatorHistory.isEmpty()) {
+        if (!config.isEnabled() || indicatorHistory == null || indicatorHistory.isEmpty()) {
             return createNoActionSignal(marketData.getSymbol());
         }
         TechnicalIndicators indicators = indicatorHistory.get(indicatorHistory.size() - 1);
@@ -94,7 +88,7 @@ public class BollingerBandMeanReversionStrategy extends AbstractTradingStrategy 
                 .anyMatch(p -> p.getSymbol().equals(marketData.getSymbol()) && p.getQuantity() > 0);
             
             // 生成交易信号
-            if (!hasPosition && positionScore >= minBuyScore.intValue()) {
+            if (!hasPosition && positionScore >= config.getMinBuyScore()) {
                 // 买入条件：价格在下半区且得分足够高，并且趋势稳定
                 if (confirmNotDowntrend(indicatorHistory)) {
                     log.info("【{}】生成买入信号: symbol={}, price={}, score={}, lower={}, middle={}", getName(),
@@ -248,8 +242,8 @@ public class BollingerBandMeanReversionStrategy extends AbstractTradingStrategy 
     @Override
     public int calculatePositionSize(TradingSignal signal, BigDecimal availableCash, BigDecimal currentPrice) {
         if (signal.getType() == TradingSignal.SignalType.BUY) {
-            // 使用95%的可用资金
-            BigDecimal maxInvestment = availableCash.multiply(positionSizeRatio);
+            // 使用配置的资金比例
+            BigDecimal maxInvestment = availableCash.multiply(config.getPositionSizeRatio());
             
             // 计算可买入的股数（港股最小交易单位通常是100股）
             int shares = maxInvestment.divide(currentPrice, 0, RoundingMode.DOWN).intValue();
