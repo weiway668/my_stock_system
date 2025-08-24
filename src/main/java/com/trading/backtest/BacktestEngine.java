@@ -317,8 +317,8 @@ public class BacktestEngine {
         result.setSymbol(request.getSymbol());
         result.setStartTime(request.getStartTime());
         result.setEndTime(request.getEndTime());
-        result.setInitialCapital(BigDecimalUtils.scale(portfolioManager.getInitialCash()));
-        result.setFinalEquity(BigDecimalUtils.scale(portfolioManager.getCash()));
+        result.setInitialCapital(BigDecimalUtils.scaleForMoney(portfolioManager.getInitialCash()));
+        result.setFinalEquity(BigDecimalUtils.scaleForMoney(portfolioManager.getCash()));
         BigDecimal totalReturn = result.getFinalEquity().subtract(result.getInitialCapital());
         result.setTotalReturn(totalReturn);
         if (result.getInitialCapital().compareTo(BigDecimal.ZERO) > 0) {

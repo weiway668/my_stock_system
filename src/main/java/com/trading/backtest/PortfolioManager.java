@@ -113,7 +113,7 @@ public class PortfolioManager {
     }
 
     private void updateAndRecordOrder(Order order, BigDecimal executedPrice, HKStockCommissionCalculator.CommissionBreakdown costs, BigDecimal realizedPnl) {
-        order.setExecutedPrice(BigDecimalUtils.scale(executedPrice));
+        order.setExecutedPrice(BigDecimalUtils.scaleForMoney(executedPrice));
         order.setCommission(costs.getCommission());
         order.setPlatformFee(costs.getPlatformFee());
         order.setSettlementFee(costs.getSettlementFee());
@@ -123,7 +123,7 @@ public class PortfolioManager {
         order.setFrcFee(costs.getFrcFee());
         order.setTotalCost(costs.getTotalCost());
         if (realizedPnl != null) {
-            order.setRealizedPnl(BigDecimalUtils.scale(realizedPnl));
+            order.setRealizedPnl(BigDecimalUtils.scaleForMoney(realizedPnl));
         }
         this.tradeHistory.add(order);
     }
@@ -142,7 +142,7 @@ public class PortfolioManager {
     public void recordDailyEquity(LocalDate currentDate) {
         BigDecimal totalEquity = calculateTotalEquity();
         dailyEquitySnapshots.add(new EquitySnapshot(currentDate, totalEquity));
-        log.debug("记录每日权益快照: 日期 {}, 总权益 {}", currentDate, BigDecimalUtils.scale(totalEquity));
+        log.debug("记录每日权益快照: 日期 {}, 总权益 {}", currentDate, BigDecimalUtils.scaleForMoney(totalEquity));
     }
 
     public BigDecimal calculateTotalEquity() {

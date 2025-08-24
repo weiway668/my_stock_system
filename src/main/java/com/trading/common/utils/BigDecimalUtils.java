@@ -15,22 +15,32 @@ public final class BigDecimalUtils {
     /**
      * 私有构造函数，防止实例化
      */
-    private BigDecimalUtils() {}
+    private BigDecimalUtils() {
+    }
 
     /**
      * 将BigDecimal格式化为系统默认的精度和舍入模式
+     * 
      * @param value 需要格式化的BigDecimal
      * @return 格式化后的BigDecimal
      */
-    public static BigDecimal scale(BigDecimal value) {
+    public static BigDecimal scaleForMoney(BigDecimal value) {
         if (value == null) {
             return BigDecimal.ZERO.setScale(DEFAULT_SCALE, DEFAULT_ROUNDING_MODE);
         }
         return value.setScale(DEFAULT_SCALE, DEFAULT_ROUNDING_MODE);
     }
 
+    public static BigDecimal scaleForIndicator(BigDecimal value) {
+        if (value == null) {
+            return BigDecimal.ZERO.setScale(4, DEFAULT_ROUNDING_MODE);
+        }
+        return value.setScale(4, DEFAULT_ROUNDING_MODE);
+    }
+
     /**
      * 将double转换为BigDecimal并格式化
+     * 
      * @param value 需要格式化的double
      * @return 格式化后的BigDecimal
      */
@@ -40,6 +50,7 @@ public final class BigDecimalUtils {
 
     /**
      * 安全地比较两个BigDecimal值是否相等（处理null）
+     * 
      * @param bd1 第一个值
      * @param bd2 第二个值
      * @return 如果数值相等则返回true

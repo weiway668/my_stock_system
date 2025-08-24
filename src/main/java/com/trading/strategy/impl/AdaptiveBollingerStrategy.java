@@ -1,18 +1,18 @@
 package com.trading.strategy.impl;
 
+import java.math.BigDecimal;
+import java.util.List;
+
+import org.springframework.stereotype.Component;
+
 import com.trading.config.BollingerBandConfig;
 import com.trading.domain.entity.MarketData;
 import com.trading.domain.entity.Order;
 import com.trading.domain.entity.Position;
 import com.trading.domain.vo.TechnicalIndicators;
-import com.trading.strategy.TradingStrategy;
 import com.trading.strategy.UsesBollingerBands;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
-import java.math.BigDecimal;
-import java.util.List;
-import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 自适应布林带策略
@@ -92,39 +92,47 @@ public class AdaptiveBollingerStrategy extends AbstractTradingStrategy implement
         if (bb == null){
             return createNoActionSignal("缺少盘整市参数的布林带指标: " + paramsKey);
         }
-        // 在盘整市，使用均值回归逻辑
+        // 在盘整市，使用均值回归逻辑 (Python "模糊" 逻辑)
         BigDecimal price = marketData.getClose();
         boolean hasPosition = positions.stream()
                 .anyMatch(p -> p.getSymbol().equals(marketData.getSymbol()) && p.getQuantity() > 0);
 
-        if (!hasPosition && price.compareTo(bb.getLowerBand()) <= 0) {
-            return createSignal(marketData.getSymbol(), TradingSignal.SignalType.BUY, price, 0.8, "盘整市触及布林带下轨");
-        } else if (hasPosition && price.compareTo(bb.getUpperBand()) >= 0) {
-            return createSignal(marketData.getSymbol(), TradingSignal.SignalType.SELL, price, 0.8, "盘整市触及布林带上轨");
+        // TODO: 将缓冲值(1.02, 0.98)配置化
+        BigDecimal lowerBandWithBuffer = bb.getLowerBand().multiply(new BigDecimal("1.01"));
+        BigDecimal upperBandWithBuffer = bb.getUpperBand().multiply(new BigDecimal("0.99"));
+
+        if (!hasPosition && price.compareTo(lowerBandWithBuffer) <= 0) {
+            return createSignal(marketData.getSymbol(), TradingSignal.SignalType.BUY, price, 0.8, "盘整市接近布林带下轨(1%缓冲)");
+        } else if (hasPosition && price.compareTo(upperBandWithBuffer) >= 0) {
+            return createSignal(marketData.getSymbol(), TradingSignal.SignalType.SELL, price, 0.8, "盘整市接近布林带上轨(1%缓冲)");
         }
-        return createNoActionSignal("盘整市，等待价格触及轨道");
+        return createNoActionSignal("盘整市，等待价格触及轨道缓冲区域");
     }
 
     private TradingSignal handleTrendingMarket(MarketData marketData, TechnicalIndicators indicators,
             List<Position> positions) {
         String paramsKey = config.getAdaptive().getTrendingParamsKey();
         TechnicalIndicators.BollingerBandSet bb = indicators.getBollingerBands().get(paramsKey);
-        if (bb == null)
+        if (bb == null){
             return createNoActionSignal("缺少趋势市参数的布林带指标: " + paramsKey);
-
-        // 在趋势市，使用突破逻辑
+        }
+        // 在趋势市，使用谨慎突破逻辑 (Python "谨慎" 逻辑)
         BigDecimal price = marketData.getClose();
         boolean hasPosition = positions.stream()
                 .anyMatch(p -> p.getSymbol().equals(marketData.getSymbol()) && p.getQuantity() > 0);
 
-        if (!hasPosition && price.compareTo(bb.getMiddleBand()) > 0) {
-            return createSignal(marketData.getSymbol(), TradingSignal.SignalType.BUY, price, 0.6, "趋势市突破布林带中轨");
+        // TODO: 将缓冲值(1.01, 0.95)配置化
+        BigDecimal middleBandWithBuffer = bb.getMiddleBand().multiply(new BigDecimal("1.01"));
+        BigDecimal upperBandWithBuffer = bb.getUpperBand().multiply(new BigDecimal("0.98"));
+
+        if (!hasPosition && price.compareTo(middleBandWithBuffer) > 0 && price.compareTo(upperBandWithBuffer) < 0) {
+            return createSignal(marketData.getSymbol(), TradingSignal.SignalType.BUY, price, 0.6, "趋势市突破中轨且未接近上轨");
         }
-        // 在趋势市，通常不轻易做空，仅在价格跌破中轨时平仓
+        // 在趋势市，通常不轻易做空，仅在价格跌破中轨时平仓 (此为原有逻辑，予以保留作为风控)
         else if (hasPosition && price.compareTo(bb.getMiddleBand()) < 0) {
             return createSignal(marketData.getSymbol(), TradingSignal.SignalType.SELL, price, 0.9, "趋势市跌破中轨，止盈/止损");
         }
-        return createNoActionSignal("趋势市，等待回调或突破信号");
+        return createNoActionSignal("趋势市，等待谨慎突破信号");
     }
 
     private TradingSignal handleVolatileMarket(MarketData marketData, TechnicalIndicators indicators,

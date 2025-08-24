@@ -99,6 +99,8 @@ public class TechnicalAnalysisService {
         StandardDeviationIndicator bbStdDev = new StandardDeviationIndicator(closePrice, 20);
         BollingerBandsUpperIndicator bbUpper = new BollingerBandsUpperIndicator(bbMiddle, bbStdDev);
         BollingerBandsLowerIndicator bbLower = new BollingerBandsLowerIndicator(bbMiddle, bbStdDev);
+        ADXIndicator adx = new ADXIndicator(series, 14);
+        ATRIndicator atr = new ATRIndicator(series, 14);
 
         java.util.ArrayList<TechnicalIndicators> results = new java.util.ArrayList<>();
         for (int i = 0; i < series.getBarCount(); i++) {
@@ -111,6 +113,8 @@ public class TechnicalAnalysisService {
                     .upperBand(toBigDecimal(bbUpper.getValue(i)))
                     .lowerBand(toBigDecimal(bbLower.getValue(i)))
                     .middleBand(toBigDecimal(bbMiddle.getValue(i)))
+                    .adx(toBigDecimal(adx.getValue(i)))
+                    .atr(toBigDecimal(atr.getValue(i)))
                     .build());
         }
         return results;
