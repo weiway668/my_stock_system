@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -30,9 +31,9 @@ public class PortfolioManager {
     private final BigDecimal slippageRate;
     private final HKStockCommissionCalculator commissionCalculator;
 
-    public record Position(String symbol, long quantity, BigDecimal averageCost, BigDecimal marketValue) {
+    public record Position(String symbol, long quantity, BigDecimal averageCost, BigDecimal marketValue, LocalDateTime openTime) {
         public Position withMarketValue(BigDecimal newMarketValue) {
-            return new Position(this.symbol, this.quantity, this.averageCost, newMarketValue);
+            return new Position(this.symbol, this.quantity, this.averageCost, newMarketValue, this.openTime);
         }
     }
 
@@ -72,12 +73,12 @@ public class PortfolioManager {
         }
 
         cash = cash.subtract(totalCharge);
-        Position currentPosition = positions.getOrDefault(buyOrder.getSymbol(), new Position(buyOrder.getSymbol(), 0, BigDecimal.ZERO, BigDecimal.ZERO));
+        Position currentPosition = positions.getOrDefault(buyOrder.getSymbol(), new Position(buyOrder.getSymbol(), 0, BigDecimal.ZERO, BigDecimal.ZERO, buyOrder.getCreateTime()));
         long newQuantity = currentPosition.quantity() + quantity;
         BigDecimal newTotalCost = currentPosition.averageCost().multiply(BigDecimal.valueOf(currentPosition.quantity())).add(totalCharge);
         BigDecimal newAverageCost = newTotalCost.divide(BigDecimal.valueOf(newQuantity), 4, RoundingMode.HALF_UP); // 成本保留4位小数以提高精度
 
-        positions.put(buyOrder.getSymbol(), new Position(buyOrder.getSymbol(), newQuantity, newAverageCost, BigDecimal.ZERO));
+        positions.put(buyOrder.getSymbol(), new Position(buyOrder.getSymbol(), newQuantity, newAverageCost, BigDecimal.ZERO, currentPosition.openTime()));
         updateAndRecordOrder(buyOrder, executionPrice, costs, null);
     }
 
@@ -107,7 +108,7 @@ public class PortfolioManager {
         if (newQuantity == 0) {
             positions.remove(sellOrder.getSymbol());
         } else {
-            positions.put(sellOrder.getSymbol(), new Position(sellOrder.getSymbol(), newQuantity, currentPosition.averageCost(), BigDecimal.ZERO));
+            positions.put(sellOrder.getSymbol(), new Position(sellOrder.getSymbol(), newQuantity, currentPosition.averageCost(), BigDecimal.ZERO, currentPosition.openTime()));
         }
         updateAndRecordOrder(sellOrder, executionPrice, costs, realizedPnl);
     }

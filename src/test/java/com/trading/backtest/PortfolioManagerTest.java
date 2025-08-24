@@ -70,7 +70,7 @@ class PortfolioManagerTest {
     @DisplayName("测试卖出ETF时，印花税是否被豁免")
     void testSellEtf_StampDutyExemption() {
         // Arrange
-        PortfolioManager.Position etfPosition = new PortfolioManager.Position(TEST_ETF_SYMBOL, 1000, new BigDecimal("20.0"), BigDecimal.ZERO);
+        PortfolioManager.Position etfPosition = new PortfolioManager.Position(TEST_ETF_SYMBOL, 1000, new BigDecimal("20.0"), BigDecimal.ZERO, LocalDateTime.now());
         portfolioManager.getPositions().put(TEST_ETF_SYMBOL, etfPosition);
         portfolioManager = new PortfolioManager(INITIAL_CAPITAL - 20000, TEST_SLIPPAGE_RATE, commissionCalculator);
         portfolioManager.getPositions().put(TEST_ETF_SYMBOL, etfPosition);

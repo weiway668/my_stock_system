@@ -110,4 +110,18 @@ public class BollingerBandFilterConfig {
          */
         private double stopLossPercentage = 0.02; // 默认2%
     }
+
+    @Data
+    public static class AdvancedRules {
+        // 买入规则
+        private double buyVolumeFactor = 1.2; // 成交量需要是均量的1.2倍
+
+        // 禁止买入规则
+        private double forbiddenUpperBandProximity = 0.95; // 价格在上轨95%以上时禁止买入
+        private double forbiddenSqueezeWidth = 0.015; // 带宽小于此值时禁止买入
+
+        // 卖出规则
+        private double sellUpperBandProximity = 0.98; // 价格触及上轨98%时卖出
+        private int maxPositionDays = 3; // 中轨上方最大持仓天数
+    }
 }

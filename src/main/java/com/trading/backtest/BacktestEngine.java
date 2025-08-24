@@ -243,6 +243,8 @@ public class BacktestEngine {
                 .vwap(toBigDecimal(indicators.vwap.getValue(index)))
                 .mfi(toBigDecimal(indicators.mfi.getValue(index)))
                 .volumeSma(toBigDecimal(indicators.volumeSma.getValue(index)))
+                .volume(indicators.series.getBar(index).getVolume().longValue())
+                .lowPrice(toBigDecimal(indicators.series.getBar(index).getLowPrice()))
                 .build();
     }
 
@@ -400,6 +402,7 @@ public class BacktestEngine {
         domainPosition.setQuantity((int) backtestPosition.quantity());
         domainPosition.setAvgCost(backtestPosition.averageCost());
         domainPosition.setMarketValue(backtestPosition.marketValue());
+        domainPosition.setOpenTime(backtestPosition.openTime());
         return domainPosition;
     }
 
