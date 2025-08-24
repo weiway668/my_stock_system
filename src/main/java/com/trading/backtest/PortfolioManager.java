@@ -143,7 +143,7 @@ public class PortfolioManager {
     public void recordDailyEquity(LocalDate currentDate) {
         BigDecimal totalEquity = calculateTotalEquity();
         dailyEquitySnapshots.add(new EquitySnapshot(currentDate, totalEquity));
-        log.debug("记录每日权益快照: 日期 {}, 总权益 {}", currentDate, BigDecimalUtils.scaleForMoney(totalEquity));
+        //log.debug("记录每日权益快照: 日期 {}, 总权益 {}", currentDate, BigDecimalUtils.scaleForMoney(totalEquity));
     }
 
     public BigDecimal calculateTotalEquity() {
