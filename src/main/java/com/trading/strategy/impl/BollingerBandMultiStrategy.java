@@ -25,7 +25,7 @@ import java.util.Optional;
 
 @Slf4j
 @Component("BOLL")
-public class BollingerBandMultiStrategy extends AbstractTradingStrategy implements TradingStrategy, UsesBollingerBands {
+public class BollingerBandMultiStrategy extends AbstractTradingStrategy implements UsesBollingerBands {
 
     private final BollingerBandConfig config;
     private final List<BollingerBandSubStrategy> subStrategies = new ArrayList<>();

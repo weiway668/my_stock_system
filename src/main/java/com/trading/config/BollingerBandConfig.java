@@ -90,10 +90,28 @@ public class BollingerBandConfig {
         private boolean enabled = true;
 
         // ADX > adxThreshold -> 趋势行情
-        private double adxThreshold = 25.0;
+        private double adxThreshold;
 
         // ATR / Close < atrRatioThreshold -> 盘整行情
-        private double atrRatioThreshold = 0.015;
+        private double atrRatioThreshold;
+
+        // === 缓冲因子配置 (经2024年数据分析后优化) ===
+        /**
+         * 盘整市，买入时下轨的缓冲系数 (e.g., 1.002 表示在下轨的 0.2% 之上即可触发)
+         */
+        private double rangingLowerBufferFactor = 1.002;
+        /**
+         * 盘整市，卖出时上轨的缓冲系数 (e.g., 0.998 表示在上轨的 0.2% 之下即可触发)
+         */
+        private double rangingUpperBufferFactor = 0.998;
+        /**
+         * 趋势市，买入时突破中轨的缓冲系数 (e.g., 1.005 表示突破中轨0.5%触发)
+         */
+        private double trendingMiddleBufferFactor = 1.005;
+        /**
+         * 趋势市，买入时上轨的限制系数 (e.g., 1.02 表示价格低于上轨的102%即可， фактически放开限制)
+         */
+        private double trendingUpperLimitFactor = 1.02;
 
         // 趋势市使用的参数集key
         private String trendingParamsKey = "trending";

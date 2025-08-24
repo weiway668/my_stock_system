@@ -1,6 +1,7 @@
 package com.trading.strategy.impl;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 
 import org.springframework.stereotype.Component;
@@ -12,6 +13,7 @@ import com.trading.domain.entity.Position;
 import com.trading.domain.vo.TechnicalIndicators;
 import com.trading.strategy.UsesBollingerBands;
 
+import cn.hutool.core.date.DateUtil;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -69,6 +71,10 @@ public class AdaptiveBollingerStrategy extends AbstractTradingStrategy implement
         BigDecimal atr = indicators.getAtr();
         BigDecimal close = marketData.getClose(); // Use actual close price
 
+        // if(DateUtil.formatLocalDateTime(marketData.getTimestamp()).equals("2024-09-12 11:30:00")){
+        //     log.info("识别市场状态 - 时间: {}, 收盘价: {}, ADX: {}, ATR: {}", marketData.getTimestamp(), close, adx, atr);
+        // }
+
         if (adx == null || atr == null || close == null || close.compareTo(BigDecimal.ZERO) == 0) {
             return MarketState.VOLATILE; // Data incomplete, assume volatile
         }
@@ -77,7 +83,7 @@ public class AdaptiveBollingerStrategy extends AbstractTradingStrategy implement
             return MarketState.TRENDING;
         }
         
-        BigDecimal atrRatio = atr.divide(close, 4, BigDecimal.ROUND_HALF_UP);
+        BigDecimal atrRatio = atr.divide(close, 4, RoundingMode.HALF_UP);
         if (atrRatio.doubleValue() < config.getAdaptive().getAtrRatioThreshold()) {
             return MarketState.RANGING;
         }
@@ -92,19 +98,18 @@ public class AdaptiveBollingerStrategy extends AbstractTradingStrategy implement
         if (bb == null){
             return createNoActionSignal("缺少盘整市参数的布林带指标: " + paramsKey);
         }
-        // 在盘整市，使用均值回归逻辑 (Python "模糊" 逻辑)
+        // 在盘整市，使用均值回归逻辑
         BigDecimal price = marketData.getClose();
         boolean hasPosition = positions.stream()
                 .anyMatch(p -> p.getSymbol().equals(marketData.getSymbol()) && p.getQuantity() > 0);
 
-        // TODO: 将缓冲值(1.02, 0.98)配置化
-        BigDecimal lowerBandWithBuffer = bb.getLowerBand().multiply(new BigDecimal("1.01"));
-        BigDecimal upperBandWithBuffer = bb.getUpperBand().multiply(new BigDecimal("0.99"));
+        BigDecimal lowerBandWithBuffer = bb.getLowerBand().multiply(BigDecimal.valueOf(config.getAdaptive().getRangingLowerBufferFactor()));
+        BigDecimal upperBandWithBuffer = bb.getUpperBand().multiply(BigDecimal.valueOf(config.getAdaptive().getRangingUpperBufferFactor()));
 
         if (!hasPosition && price.compareTo(lowerBandWithBuffer) <= 0) {
-            return createSignal(marketData.getSymbol(), TradingSignal.SignalType.BUY, price, 0.8, "盘整市接近布林带下轨(1%缓冲)");
+            return createSignal(marketData.getSymbol(), TradingSignal.SignalType.BUY, price, 0.8, "盘整市接近布林带下轨(缓冲)");
         } else if (hasPosition && price.compareTo(upperBandWithBuffer) >= 0) {
-            return createSignal(marketData.getSymbol(), TradingSignal.SignalType.SELL, price, 0.8, "盘整市接近布林带上轨(1%缓冲)");
+            return createSignal(marketData.getSymbol(), TradingSignal.SignalType.SELL, price, 0.8, "盘整市接近布林带上轨(缓冲)");
         }
         return createNoActionSignal("盘整市，等待价格触及轨道缓冲区域");
     }
@@ -116,22 +121,21 @@ public class AdaptiveBollingerStrategy extends AbstractTradingStrategy implement
         if (bb == null){
             return createNoActionSignal("缺少趋势市参数的布林带指标: " + paramsKey);
         }
-        // 在趋势市，使用谨慎突破逻辑 (Python "谨慎" 逻辑)
+        // 在趋势市，使用谨慎突破逻辑
         BigDecimal price = marketData.getClose();
         boolean hasPosition = positions.stream()
                 .anyMatch(p -> p.getSymbol().equals(marketData.getSymbol()) && p.getQuantity() > 0);
 
-        // TODO: 将缓冲值(1.01, 0.95)配置化
-        BigDecimal middleBandWithBuffer = bb.getMiddleBand().multiply(new BigDecimal("1.01"));
-        BigDecimal upperBandWithBuffer = bb.getUpperBand().multiply(new BigDecimal("0.98"));
+        BigDecimal middleBandWithBuffer = bb.getMiddleBand().multiply(BigDecimal.valueOf(config.getAdaptive().getTrendingMiddleBufferFactor()));
+        BigDecimal upperBandWithBuffer = bb.getUpperBand().multiply(BigDecimal.valueOf(config.getAdaptive().getTrendingUpperLimitFactor()));
 
         if (!hasPosition && price.compareTo(middleBandWithBuffer) > 0 && price.compareTo(upperBandWithBuffer) < 0) {
             return createSignal(marketData.getSymbol(), TradingSignal.SignalType.BUY, price, 0.6, "趋势市突破中轨且未接近上轨");
         }
         // 在趋势市，通常不轻易做空，仅在价格跌破中轨时平仓 (此为原有逻辑，予以保留作为风控)
-        else if (hasPosition && price.compareTo(bb.getMiddleBand()) < 0) {
-            return createSignal(marketData.getSymbol(), TradingSignal.SignalType.SELL, price, 0.9, "趋势市跌破中轨，止盈/止损");
-        }
+        // else if (hasPosition && price.compareTo(bb.getMiddleBand()) < 0) {
+        //     return createSignal(marketData.getSymbol(), TradingSignal.SignalType.SELL, price, 0.9, "趋势市跌破中轨，止盈/止损");
+        // }
         return createNoActionSignal("趋势市，等待谨慎突破信号");
     }
 

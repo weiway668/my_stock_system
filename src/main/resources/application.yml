@@ -179,8 +179,17 @@ trading:
       # 自适应策略本身的参数
       adaptive:
         enabled: true
-        adx-threshold: 25.0
-        atr-ratio-threshold: 0.015
+        # 趋势识别的ADX阈值 (经2024年数据分析, 从25下调)
+        adx-threshold: 22.0
+        # 盘整市识别的ATR比率阈值 (经2024年数据分析, 从0.015下调)
+        atr-ratio-threshold: 0.010
+
+        # 缓冲因子 (经2024年数据分析后优化)
+        ranging-lower-buffer-factor: 1.002 # 盘整市买入缓冲 (更接近下轨)
+        ranging-upper-buffer-factor: 0.998 # 盘整市卖出缓冲 (更接近上轨)
+        trending-middle-buffer-factor: 1.005 # 趋势市突破中轨缓冲
+        trending-upper-limit-factor: 1.02  # 趋势市上轨限制因子(>1.0则基本等同于放开限制)
+
         trending-params-key: "trending"
         ranging-params-key: "ranging"
         volatile-params-key: "volatile"
