@@ -46,6 +46,12 @@ public class TechnicalIndicators {
     private BigDecimal pivotPoint, resistance1, resistance2, resistance3, support1, support2, support3;
     private java.time.LocalDateTime calculatedAt;
 
+    // Raw data from the bar, for filter use. Not persisted.
+    @Transient
+    private BigDecimal lowPrice;
+    @Transient
+    private Long volume;
+
     public BigDecimal getBollingerUpper() { return upperBand; }
     public BigDecimal getBollingerMiddle() { return middleBand; }
     public BigDecimal getBollingerLower() { return lowerBand; }

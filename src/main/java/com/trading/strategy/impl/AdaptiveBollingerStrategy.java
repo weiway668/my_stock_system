@@ -1,20 +1,16 @@
 package com.trading.strategy.impl;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.util.List;
-
-import org.springframework.stereotype.Component;
-
 import com.trading.config.BollingerBandConfig;
 import com.trading.domain.entity.MarketData;
 import com.trading.domain.entity.Order;
 import com.trading.domain.entity.Position;
 import com.trading.domain.vo.TechnicalIndicators;
-import com.trading.strategy.UsesBollingerBands;
-
-import cn.hutool.core.date.DateUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Component;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.List;
 
 /**
  * 自适应布林带策略
@@ -24,7 +20,7 @@ import lombok.extern.slf4j.Slf4j;
  */
 @Slf4j
 @Component("BOLL_ADAPTIVE")
-public class AdaptiveBollingerStrategy extends AbstractTradingStrategy implements UsesBollingerBands {
+public class AdaptiveBollingerStrategy extends AbstractTradingStrategy {
 
     private final BollingerBandConfig config;
 
@@ -37,6 +33,12 @@ public class AdaptiveBollingerStrategy extends AbstractTradingStrategy implement
         this.enabled = config.isEnabled();
         this.name = "自适应布林带策略";
         this.version = "1.0";
+    }
+
+    @Override
+    public List<BollingerBandConfig.ParameterSet> getRequiredBollingerBandSets() {
+        // 该策略需要使用配置文件中定义的所有布林带参数集
+        return config.getParameterSets();
     }
 
     @Override
@@ -70,10 +72,6 @@ public class AdaptiveBollingerStrategy extends AbstractTradingStrategy implement
         BigDecimal adx = indicators.getAdx();
         BigDecimal atr = indicators.getAtr();
         BigDecimal close = marketData.getClose(); // Use actual close price
-
-        // if(DateUtil.formatLocalDateTime(marketData.getTimestamp()).equals("2024-09-12 11:30:00")){
-        //     log.info("识别市场状态 - 时间: {}, 收盘价: {}, ADX: {}, ATR: {}", marketData.getTimestamp(), close, adx, atr);
-        // }
 
         if (adx == null || atr == null || close == null || close.compareTo(BigDecimal.ZERO) == 0) {
             return MarketState.VOLATILE; // Data incomplete, assume volatile
@@ -163,8 +161,6 @@ public class AdaptiveBollingerStrategy extends AbstractTradingStrategy implement
                 .build();
     }
 
-    // We can leave calculatePositionSize and applyRiskManagement with default
-    // implementations from AbstractTradingStrategy for now
     @Override
     public int calculatePositionSize(TradingSignal signal, BigDecimal availableCash, BigDecimal currentPrice) {
         if (signal.getType() == TradingSignal.SignalType.BUY) {

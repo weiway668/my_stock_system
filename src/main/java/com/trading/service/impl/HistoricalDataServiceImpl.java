@@ -1,7 +1,27 @@
 package com.trading.service.impl;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.trading.common.enums.MarketType;
-import com.trading.domain.entity.CorporateActionEntity;
 import com.trading.domain.entity.HistoricalKLineEntity;
 import com.trading.domain.entity.HistoricalKLineEntity.DataSource;
 import com.trading.domain.entity.HistoricalKLineEntity.DataStatus;
@@ -14,26 +34,7 @@ import com.trading.repository.HistoricalDataRepository;
 import com.trading.service.CorporateActionService;
 import com.trading.service.HistoricalDataService;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Lazy;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.stream.Collectors;
 
 /**
  * 历史数据服务实现类
@@ -49,7 +50,7 @@ public class HistoricalDataServiceImpl implements HistoricalDataService {
     private CorporateActionService corporateActionService;
 
     public HistoricalDataServiceImpl(HistoricalDataRepository historicalDataRepository,
-            CorporateActionRepository corporateActionRepository, FutuMarketDataService futuMarketDataService) {
+            CorporateActionRepository corporateActionRepository, @Lazy FutuMarketDataService futuMarketDataService) {
         this.historicalDataRepository = historicalDataRepository;
         this.corporateActionRepository = corporateActionRepository;
         this.futuMarketDataService = futuMarketDataService;

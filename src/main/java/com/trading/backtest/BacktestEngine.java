@@ -1,35 +1,26 @@
 package com.trading.backtest;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
-
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.trading.common.utils.BigDecimalUtils;
+import com.trading.config.BollingerBandConfig;
+import com.trading.domain.entity.BacktestResultEntity;
+import com.trading.domain.entity.MarketData;
+import com.trading.domain.entity.Order;
+import com.trading.domain.enums.OrderSide;
+import com.trading.domain.enums.OrderStatus;
+import com.trading.domain.enums.OrderType;
+import com.trading.domain.vo.TechnicalIndicators;
+import com.trading.repository.BacktestResultRepository;
+import com.trading.service.MarketDataService;
+import com.trading.strategy.TradingStrategy;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.ta4j.core.BarSeries;
 import org.ta4j.core.BaseBarSeries;
-import org.ta4j.core.indicators.ATRIndicator;
-import org.ta4j.core.indicators.CCIIndicator;
-import org.ta4j.core.indicators.EMAIndicator;
-import org.ta4j.core.indicators.MACDIndicator;
-import org.ta4j.core.indicators.ParabolicSarIndicator;
-import org.ta4j.core.indicators.RSIIndicator;
-import org.ta4j.core.indicators.SMAIndicator;
-import org.ta4j.core.indicators.StochasticOscillatorDIndicator;
-import org.ta4j.core.indicators.StochasticOscillatorKIndicator;
-import org.ta4j.core.indicators.WilliamsRIndicator;
+import org.ta4j.core.indicators.*;
 import org.ta4j.core.indicators.adx.ADXIndicator;
 import org.ta4j.core.indicators.adx.MinusDIIndicator;
 import org.ta4j.core.indicators.adx.PlusDIIndicator;
@@ -44,23 +35,15 @@ import org.ta4j.core.indicators.volume.OnBalanceVolumeIndicator;
 import org.ta4j.core.indicators.volume.VWAPIndicator;
 import org.ta4j.core.num.Num;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.trading.common.utils.BigDecimalUtils;
-import com.trading.config.BollingerBandConfig;
-import com.trading.domain.entity.BacktestResultEntity;
-import com.trading.domain.entity.MarketData;
-import com.trading.domain.entity.Order;
-import com.trading.domain.enums.OrderSide;
-import com.trading.domain.enums.OrderStatus;
-import com.trading.domain.enums.OrderType;
-import com.trading.domain.vo.TechnicalIndicators;
-import com.trading.repository.BacktestResultRepository;
-import com.trading.service.MarketDataService;
-import com.trading.strategy.TradingStrategy;
-import com.trading.strategy.UsesBollingerBands;
-
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -107,7 +90,6 @@ public class BacktestEngine {
                 }
 
                 BarSeries series = buildBarSeries(request.getSymbol(), historicalDataWithWarmup);
-                // Pass the strategy from the request to pre-calculate indicators based on its config.
                 PrecalculatedIndicators precalculatedIndicators = precalculateIndicators(series, request.getStrategy());
 
                 request.getStrategy().initialize(request.getStrategyParameters());
@@ -170,11 +152,11 @@ public class BacktestEngine {
         VolumeIndicator volume = new VolumeIndicator(series);
 
         Map<String, BollingerIndicatorSet> bollingerBandsMap = new HashMap<>();
-        // Check if the strategy is a Bollinger-based strategy to get its config.
-        if (strategy instanceof UsesBollingerBands) {
-            BollingerBandConfig config = applicationContext.getBean(BollingerBandConfig.class);
-            log.info("检测到布林带策略，将为其计算 {} 套参数", config.getParameterSets().size());
-            for (BollingerBandConfig.ParameterSet paramSet : config.getParameterSets()) {
+        List<BollingerBandConfig.ParameterSet> requiredSets = strategy.getRequiredBollingerBandSets();
+
+        if (requiredSets != null && !requiredSets.isEmpty()) {
+            log.info("策略请求计算 {} 套布林带参数", requiredSets.size());
+            for (BollingerBandConfig.ParameterSet paramSet : requiredSets) {
                 SMAIndicator sma = new SMAIndicator(closePrice, paramSet.getPeriod());
                 BollingerBandsMiddleIndicator bbMiddle = new BollingerBandsMiddleIndicator(sma);
                 StandardDeviationIndicator stdDev = new StandardDeviationIndicator(closePrice, paramSet.getPeriod());
@@ -235,7 +217,7 @@ public class BacktestEngine {
         }
 
         // For backward compatibility, populate legacy fields with the 'default' or first available set.
-        TechnicalIndicators.BollingerBandSet defaultBb = bbSets.getOrDefault("ranging", bbSets.values().stream().findFirst().orElse(new TechnicalIndicators.BollingerBandSet()));
+        TechnicalIndicators.BollingerBandSet defaultBb = bbSets.getOrDefault("default", bbSets.values().stream().findFirst().orElse(new TechnicalIndicators.BollingerBandSet()));
 
         return TechnicalIndicators.builder()
                 .bollingerBands(bbSets)

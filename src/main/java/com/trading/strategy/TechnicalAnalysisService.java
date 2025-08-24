@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -88,37 +89,74 @@ public class TechnicalAnalysisService {
             return List.of();
         }
 
-        // 计算各种指标
         ClosePriceIndicator closePrice = new ClosePriceIndicator(series);
+
+        // --- 计算所有需要的指标 ---
+        // 基础指标
         SMAIndicator sma5 = new SMAIndicator(closePrice, 5);
         SMAIndicator sma20 = new SMAIndicator(closePrice, 20);
         MACDIndicator macd = new MACDIndicator(closePrice, 12, 26);
         EMAIndicator macdSignal = new EMAIndicator(macd, 9);
         RSIIndicator rsi = new RSIIndicator(closePrice, 14);
-        BollingerBandsMiddleIndicator bbMiddle = new BollingerBandsMiddleIndicator(new SMAIndicator(closePrice, 20));
-        StandardDeviationIndicator bbStdDev = new StandardDeviationIndicator(closePrice, 20);
-        BollingerBandsUpperIndicator bbUpper = new BollingerBandsUpperIndicator(bbMiddle, bbStdDev);
-        BollingerBandsLowerIndicator bbLower = new BollingerBandsLowerIndicator(bbMiddle, bbStdDev);
         ADXIndicator adx = new ADXIndicator(series, 14);
         ATRIndicator atr = new ATRIndicator(series, 14);
 
+        // --- 计算多套布林带参数 ---
+        Map<String, BollingerBandIndicators> bollingerBandsMap = new HashMap<>();
+        List<BollingerBandConfig.ParameterSet> allParamSets = new ArrayList<>(bollingerBandConfig.getParameterSets());
+        BollingerBandConfig.ParameterSet defaultSet = new BollingerBandConfig.ParameterSet();
+        defaultSet.setKey("default");
+        defaultSet.setPeriod(20); // Standard default period
+        defaultSet.setStdDev(2.0); // Standard default std dev
+        allParamSets.add(defaultSet);
+
+        for (BollingerBandConfig.ParameterSet params : allParamSets) {
+            if (series.getBarCount() >= params.getPeriod()) {
+                SMAIndicator sma = new SMAIndicator(closePrice, params.getPeriod());
+                BollingerBandsMiddleIndicator middleIndicator = new BollingerBandsMiddleIndicator(sma);
+                StandardDeviationIndicator stdDevIndicator = new StandardDeviationIndicator(closePrice, params.getPeriod());
+                Num stdDevMultiplier = DecimalNum.valueOf(params.getStdDev());
+                BollingerBandsUpperIndicator upperIndicator = new BollingerBandsUpperIndicator(middleIndicator, stdDevIndicator, stdDevMultiplier);
+                BollingerBandsLowerIndicator lowerIndicator = new BollingerBandsLowerIndicator(middleIndicator, stdDevIndicator, stdDevMultiplier);
+                bollingerBandsMap.put(params.getKey(), new BollingerBandIndicators(upperIndicator, middleIndicator, lowerIndicator));
+            }
+        }
+
+        // --- 循环填充每一天的数据 ---
         java.util.ArrayList<TechnicalIndicators> results = new java.util.ArrayList<>();
         for (int i = 0; i < series.getBarCount(); i++) {
+            // 为当前时间点填充布林带数据
+            Map<String, TechnicalIndicators.BollingerBandSet> bbSetsForCurrentIndex = new HashMap<>();
+            for (Map.Entry<String, BollingerBandIndicators> entry : bollingerBandsMap.entrySet()) {
+                BollingerBandIndicators indicators = entry.getValue();
+                BigDecimal upper = toBigDecimal(indicators.upper.getValue(i));
+                BigDecimal middle = toBigDecimal(indicators.middle.getValue(i));
+                BigDecimal lower = toBigDecimal(indicators.lower.getValue(i));
+                
+                TechnicalIndicators.BollingerBandSet bandSet = TechnicalIndicators.BollingerBandSet.builder()
+                        .upperBand(upper)
+                        .middleBand(middle)
+                        .lowerBand(lower)
+                        .build();
+                bbSetsForCurrentIndex.put(entry.getKey(), bandSet);
+            }
+
             results.add(TechnicalIndicators.builder()
                     .sma5(toBigDecimal(sma5.getValue(i)))
                     .sma20(toBigDecimal(sma20.getValue(i)))
                     .macdLine(toBigDecimal(macd.getValue(i)))
                     .signalLine(toBigDecimal(macdSignal.getValue(i)))
                     .rsi(toBigDecimal(rsi.getValue(i)))
-                    .upperBand(toBigDecimal(bbUpper.getValue(i)))
-                    .lowerBand(toBigDecimal(bbLower.getValue(i)))
-                    .middleBand(toBigDecimal(bbMiddle.getValue(i)))
                     .adx(toBigDecimal(adx.getValue(i)))
                     .atr(toBigDecimal(atr.getValue(i)))
+                    .bollingerBands(bbSetsForCurrentIndex) // 存入map
                     .build());
         }
         return results;
     }
+
+    // 内部辅助记录类，用于临时存储TA4J的布林带指标对象
+    private record BollingerBandIndicators(BollingerBandsUpperIndicator upper, BollingerBandsMiddleIndicator middle, BollingerBandsLowerIndicator lower) {}
 
     /**
      * 计算技术指标
@@ -923,7 +961,15 @@ public class TechnicalAnalysisService {
 
             // --- 新增：计算多套布林带参数 ---
             Map<String, TechnicalIndicators.BollingerBandSet> bollingerBandsMap = new HashMap<>();
-            for (BollingerBandConfig.ParameterSet params : bollingerBandConfig.getParameterSets()) {
+            // 添加默认参数的计算
+            List<BollingerBandConfig.ParameterSet> allParamSets = new ArrayList<>(bollingerBandConfig.getParameterSets());
+            BollingerBandConfig.ParameterSet defaultSet = new BollingerBandConfig.ParameterSet();
+            defaultSet.setKey("default");
+            defaultSet.setPeriod(20);
+            defaultSet.setStdDev(2.0);
+            allParamSets.add(defaultSet);
+
+            for (BollingerBandConfig.ParameterSet params : allParamSets) {
                 if (dataSize >= params.getPeriod()) {
                     SMAIndicator sma = new SMAIndicator(closePrice, params.getPeriod());
                     BollingerBandsMiddleIndicator middleIndicator = new BollingerBandsMiddleIndicator(sma);
@@ -959,6 +1005,9 @@ public class TechnicalAnalysisService {
                 }
             }
             // --- 结束：计算多套布林带参数 ---
+
+            // 获取最后一条市场数据用于填充原始价格和成交量
+            MarketData lastMarketData = historicalData.get(dataSize - 1);
 
             // 获取时间周期（从第一条数据获取）
             String timeframeStr = "1d";
@@ -1004,6 +1053,8 @@ public class TechnicalAnalysisService {
                     .support2(calculateSupport2(series))
                     .support3(calculateSupport3(series))
                     .calculatedAt(LocalDateTime.now())
+                    .lowPrice(lastMarketData.getLow())
+                    .volume(lastMarketData.getVolume())
                     .build();
 
             log.debug("技术指标计算成功: symbol={}, time={}, dataSize={}, RSI={}, MACD={}",

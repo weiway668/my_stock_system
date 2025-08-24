@@ -207,6 +207,19 @@ trading:
         breakout-lookback: 10
         expansion-factor: 0.2
         volume-multiplier: 1.5  # 突破时成交量需要放大1.5倍
+
+    # 方案四：布林带组合过滤系统
+    bollinger-filter:
+      enabled: true # 注意：默认不启用，需要手动开启
+      min-pass-filters: 3
+      min-total-score: 50.0
+      width:
+        too-narrow: 0.015
+        ideal-lower: 0.02
+        ideal-upper: 0.04
+        too-wide: 0.06
+      trend:
+        slope-threshold: 0.001
       
     volume:
       enabled: true

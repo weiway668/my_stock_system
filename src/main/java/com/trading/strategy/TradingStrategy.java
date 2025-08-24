@@ -108,10 +108,19 @@ public interface TradingStrategy {
      * 策略销毁
      */
     void destroy();
-    
+
     /**
-     * 交易信号
+     * 如果策略需要特殊的、带参数的布林带指标，则覆盖此方法。
+     * BacktestEngine会根据这里返回的参数列表，预先计算好所有需要的布林带指标。
+     * @return 需要计算的布林带参数集列表，默认为空。
      */
+    default List<com.trading.config.BollingerBandConfig.ParameterSet> getRequiredBollingerBandSets() {
+        return java.util.Collections.emptyList();
+    }
+     
+     /**
+      * 交易信号
+      */
     class TradingSignal {
         private SignalType type;
         private OrderType orderType; // 订单类型（市价单、限价单等）

@@ -7,8 +7,6 @@ import com.trading.domain.entity.MarketData;
 import com.trading.domain.entity.Order;
 import com.trading.domain.entity.Position;
 import com.trading.domain.vo.TechnicalIndicators;
-import com.trading.strategy.TradingStrategy;
-import com.trading.strategy.UsesBollingerBands;
 import com.trading.strategy.impl.bollinger.BollingerBandSubStrategy;
 import com.trading.strategy.impl.bollinger.MeanReversionSubStrategy;
 import com.trading.strategy.impl.bollinger.SqueezeBreakoutSubStrategy;
@@ -19,13 +17,14 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 @Slf4j
 @Component("BOLL")
-public class BollingerBandMultiStrategy extends AbstractTradingStrategy implements UsesBollingerBands {
+public class BollingerBandMultiStrategy extends AbstractTradingStrategy {
 
     private final BollingerBandConfig config;
     private final List<BollingerBandSubStrategy> subStrategies = new ArrayList<>();
@@ -36,6 +35,16 @@ public class BollingerBandMultiStrategy extends AbstractTradingStrategy implemen
         this.objectMapper = objectMapper;
         this.name = "布林带复合策略";
         this.version = "1.1";
+    }
+
+    @Override
+    public List<BollingerBandConfig.ParameterSet> getRequiredBollingerBandSets() {
+        // 本策略及其子策略依赖一套标准的"default"布林带参数
+        BollingerBandConfig.ParameterSet defaultSet = new BollingerBandConfig.ParameterSet();
+        defaultSet.setKey("default");
+        defaultSet.setPeriod(20);
+        defaultSet.setStdDev(2.0);
+        return Collections.singletonList(defaultSet);
     }
 
     @Override
@@ -84,15 +93,15 @@ public class BollingerBandMultiStrategy extends AbstractTradingStrategy implemen
     }
 
     @Override
-    public TradingStrategy.TradingSignal generateSignal(MarketData marketData, List<TechnicalIndicators> indicatorHistory, List<Position> positions) {
+    public TradingSignal generateSignal(MarketData marketData, List<TechnicalIndicators> indicatorHistory, List<Position> positions) {
         if (!this.isEnabled() || subStrategies.isEmpty() || indicatorHistory == null || indicatorHistory.isEmpty()) {
             return createNoActionSignal(marketData.getSymbol());
         }
 
         for (BollingerBandSubStrategy subStrategy : subStrategies) {
             try {
-                Optional<TradingStrategy.TradingSignal> signal = subStrategy.generateSignal(marketData, indicatorHistory, positions);
-                if (signal.isPresent() && signal.get().getType() != TradingStrategy.TradingSignal.SignalType.NO_ACTION) {
+                Optional<TradingSignal> signal = subStrategy.generateSignal(marketData, indicatorHistory, positions);
+                if (signal.isPresent() && signal.get().getType() != TradingSignal.SignalType.NO_ACTION) {
                     return signal.get();
                 }
             } catch (Exception e) {
@@ -110,12 +119,12 @@ public class BollingerBandMultiStrategy extends AbstractTradingStrategy implemen
                 config.getMeanReversion().getPositionSizeRatio() :
                 new BigDecimal("0.2");
 
-        if (signal.getType() == TradingStrategy.TradingSignal.SignalType.BUY) {
+        if (signal.getType() == TradingSignal.SignalType.BUY) {
             BigDecimal maxInvestment = availableCash.multiply(positionSizeRatio);
             int shares = maxInvestment.divide(currentPrice, 0, RoundingMode.DOWN).intValue();
             shares = (shares / 100) * 100;
             return Math.max(shares, 100);
-        } else if (signal.getType() == TradingStrategy.TradingSignal.SignalType.SELL) {
+        } else if (signal.getType() == TradingSignal.SignalType.SELL) {
             return Integer.MAX_VALUE;
         }
         return 0;
@@ -126,10 +135,10 @@ public class BollingerBandMultiStrategy extends AbstractTradingStrategy implemen
         return order;
     }
 
-    private TradingStrategy.TradingSignal createNoActionSignal(String symbol) {
-        return TradingStrategy.TradingSignal.builder()
+    private TradingSignal createNoActionSignal(String symbol) {
+        return TradingSignal.builder()
                 .symbol(symbol)
-                .type(TradingStrategy.TradingSignal.SignalType.NO_ACTION)
+                .type(TradingSignal.SignalType.NO_ACTION)
                 .confidence(BigDecimal.ZERO)
                 .reason("所有布林带子策略均未触发")
                 .timestamp(LocalDateTime.now())
