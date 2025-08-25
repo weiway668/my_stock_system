@@ -60,10 +60,7 @@ public class MACDTradingStrategy extends AbstractTradingStrategy {
     }
     
     @Override
-    public TradingSignal generateSignal(
-            MarketData marketData, 
-            List<TechnicalIndicators> indicatorHistory,
-            List<Position> positions) {
+    protected TradingSignal generateStrategySignal(MarketData marketData, List<com.trading.domain.entity.HistoricalKLineEntity> historicalKlines, List<TechnicalIndicators> indicatorHistory, List<Position> positions) {
         
         if (indicatorHistory == null || indicatorHistory.size() < 2) {
             return TradingSignal.builder().type(TradingSignal.SignalType.NO_ACTION).reason("等待足够的指标历史数据").build();

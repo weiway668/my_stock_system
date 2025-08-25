@@ -78,7 +78,7 @@ class BacktestEngineTest {
                 TradingStrategy.TradingSignal noActionSignal = new TradingStrategy.TradingSignal();
                 noActionSignal.setType(TradingStrategy.TradingSignal.SignalType.NO_ACTION);
 
-                when(mockStrategy.generateSignal(any(MarketData.class), any(), anyList()))
+                when(mockStrategy.generateSignal(any(MarketData.class), anyList(), anyList(), anyList()))
                                 .thenReturn(limitBuySignal) // 第一次调用时，发出限价单
                                 .thenReturn(noActionSignal); // 第二次调用时，无操作
 

@@ -64,8 +64,7 @@ public class BollingerBandFilterStrategy extends AbstractTradingStrategy {
     }
 
     @Override
-    public TradingSignal generateSignal(MarketData marketData, List<TechnicalIndicators> indicatorHistory,
-            List<Position> positions) {
+    protected TradingSignal generateStrategySignal(MarketData marketData, List<com.trading.domain.entity.HistoricalKLineEntity> historicalKlines, List<TechnicalIndicators> indicatorHistory, List<Position> positions) {
         if (indicatorHistory.size() < 2) {
             return createNoActionSignal(marketData.getSymbol(), "指标历史不足");
         }

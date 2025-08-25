@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.trading.common.utils.BigDecimalUtils;
 import com.trading.config.BollingerBandConfig;
 import com.trading.domain.entity.BacktestResultEntity;
+import com.trading.domain.entity.HistoricalKLineEntity;
 import com.trading.domain.entity.MarketData;
 import com.trading.domain.entity.Order;
 import com.trading.domain.enums.OrderSide;
@@ -83,6 +84,7 @@ public class BacktestEngine {
                 final int WARMUP_DAYS = 100;
                 LocalDateTime fetchStartTime = request.getStartTime().minusDays(WARMUP_DAYS);
                 List<MarketData> historicalDataWithWarmup = fetchHistoricalData(request, fetchStartTime);
+                List<HistoricalKLineEntity> historicalKlinesWithWarmup = convertToHistoricalKLineEntityList(historicalDataWithWarmup);
 
                 if (historicalDataWithWarmup.isEmpty() || historicalDataWithWarmup.size() < 50) {
                     log.warn("历史数据不足(含预热数据)，无法进行有效回测");
@@ -119,7 +121,10 @@ public class BacktestEngine {
 
                     List<com.trading.domain.entity.Position> domainPositions = portfolioManager.getPositions().values().stream()
                             .map(this::convertToDomainPosition).collect(Collectors.toList());
-                    TradingStrategy.TradingSignal signal = request.getStrategy().generateSignal(currentData, indicatorHistory, domainPositions);
+
+                    // Create sublist of historical k-lines up to the current point
+                    List<HistoricalKLineEntity> klinesForSignal = historicalKlinesWithWarmup.subList(0, i + 1);
+                    TradingStrategy.TradingSignal signal = request.getStrategy().generateSignal(currentData, klinesForSignal, indicatorHistory, domainPositions);
 
                     if (signal != null && signal.getType() != TradingStrategy.TradingSignal.SignalType.NO_ACTION) {
                         executeSignal(portfolioManager, pendingOrders, signal, currentData);
@@ -418,4 +423,25 @@ public class BacktestEngine {
         result.setError(error);
         return result;
     }
+
+    private List<HistoricalKLineEntity> convertToHistoricalKLineEntityList(List<MarketData> marketDataList) {
+        if (marketDataList == null) {
+            return new ArrayList<>();
+        }
+        List<HistoricalKLineEntity> klineList = new ArrayList<>(marketDataList.size());
+        for (MarketData data : marketDataList) {
+            HistoricalKLineEntity kline = new HistoricalKLineEntity();
+            kline.setSymbol(data.getSymbol());
+            kline.setTimestamp(data.getTimestamp());
+            kline.setOpen(data.getOpen());
+            kline.setHigh(data.getHigh());
+            kline.setLow(data.getLow());
+            kline.setClose(data.getClose());
+            kline.setVolume(data.getVolume());
+            kline.setTurnover(data.getTurnover());
+            klineList.add(kline);
+        }
+        return klineList;
+    }
 }
+

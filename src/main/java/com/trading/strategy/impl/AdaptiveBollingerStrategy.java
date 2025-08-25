@@ -52,8 +52,7 @@ public class AdaptiveBollingerStrategy extends AbstractTradingStrategy {
     }
 
     @Override
-    public TradingSignal generateSignal(MarketData marketData, List<TechnicalIndicators> indicatorHistory,
-            List<Position> positions) {
+    protected TradingSignal generateStrategySignal(MarketData marketData, List<com.trading.domain.entity.HistoricalKLineEntity> historicalKlines, List<TechnicalIndicators> indicatorHistory, List<Position> positions) {
         if (!this.isEnabled() || indicatorHistory.isEmpty()) {
             return createNoActionSignal(marketData.getSymbol(),"策略未启用或指标历史为空");
         }

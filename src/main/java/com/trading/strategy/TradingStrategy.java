@@ -44,12 +44,14 @@ public interface TradingStrategy {
     /**
      * 生成交易信号
      * @param marketData 当前市场数据
-     * @param indicators 技术指标
+     * @param historicalKlines 历史K线数据
+     * @param indicatorHistory 技术指标
      * @param positions 当前持仓
      * @return 交易信号
      */
     TradingSignal generateSignal(
         MarketData marketData, 
+        List<com.trading.domain.entity.HistoricalKLineEntity> historicalKlines,
         List<TechnicalIndicators> indicatorHistory,
         List<Position> positions
     );

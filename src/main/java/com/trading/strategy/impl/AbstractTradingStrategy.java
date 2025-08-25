@@ -3,10 +3,12 @@ package com.trading.strategy.impl;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.trading.domain.entity.HistoricalKLineEntity;
 import com.trading.domain.entity.MarketData;
 import com.trading.domain.entity.Order;
 import com.trading.domain.enums.OrderStatus;
@@ -106,6 +108,48 @@ public abstract class AbstractTradingStrategy implements TradingStrategy {
     protected void onParametersUpdated() {
         // 子类可以重写此方法以响应参数更新
     }
+
+    @Override
+    public TradingSignal generateSignal(
+            MarketData marketData,
+            List<HistoricalKLineEntity> historicalKlines,
+            List<TechnicalIndicators> indicatorHistory,
+            List<com.trading.domain.entity.Position> positions) {
+
+        if (!isEnabled()) {
+            return createNoActionSignal(marketData.getSymbol(), "策略已禁用");
+        }
+
+        // 趋势过滤
+        if (!isTrendFavorable(marketData, indicatorHistory)) {
+            return createNoActionSignal(marketData.getSymbol(), "趋势不利");
+        }
+
+        // 波动性过滤
+        if (!isVolatilityAdequate(marketData, historicalKlines, indicatorHistory)) {
+            return createNoActionSignal(marketData.getSymbol(), "波动性不适宜");
+        }
+
+        // 通过所有过滤器，执行具体策略
+        return generateStrategySignal(marketData, historicalKlines, indicatorHistory, positions);
+    }
+
+    /**
+     * 具体的策略信号生成逻辑。
+     * 在通过了趋势和波动性检查后被调用。
+     *
+     * @param marketData       当前市场数据
+     * @param historicalKlines 历史K线数据
+     * @param indicatorHistory 技术指标历史
+     * @param positions        当前持仓
+     * @return 交易信号
+     */
+    protected abstract TradingSignal generateStrategySignal(
+            MarketData marketData,
+            List<HistoricalKLineEntity> historicalKlines,
+            List<TechnicalIndicators> indicatorHistory,
+            List<com.trading.domain.entity.Position> positions
+    );
 
 
     /**
@@ -219,12 +263,13 @@ public abstract class AbstractTradingStrategy implements TradingStrategy {
     }
 
     /**
-     * 判断当前波动性是否足够且不过高。这是一个专业实现，综合使用ATR和布林带宽度。
+     * 判断当前波动性是否足够且不过高。这是一个专业实现，综合使用ATR、布林带宽度和历史波动率。
      * @param marketData 当前市场数据
+     * @param historicalKlines 历史K线数据
      * @param indicatorHistory 技术指标历史
      * @return 如果波动性在适宜范围内，则返回 true
      */
-    protected boolean isVolatilityAdequate(MarketData marketData, List<TechnicalIndicators> indicatorHistory) {
+    protected boolean isVolatilityAdequate(MarketData marketData, List<HistoricalKLineEntity> historicalKlines, List<TechnicalIndicators> indicatorHistory) {
         if (indicatorHistory.isEmpty()) {
             return false;
         }
@@ -235,10 +280,14 @@ public abstract class AbstractTradingStrategy implements TradingStrategy {
         // 2. 布林带宽度过滤
         boolean bbWidthFilter = checkBollingerBandWidth(indicatorHistory);
 
-        log.debug("专业波动率分析结果: ATR过滤={}, 布林带宽度过滤={}", atrFilter, bbWidthFilter);
+        // 3. 历史波动率比较
+        boolean historicalVolFilter = checkHistoricalVolatility(historicalKlines);
 
-        // 综合判断：两者都必须满足
-        return atrFilter && bbWidthFilter;
+        log.debug("专业波动率分析结果: ATR过滤={}, 布林带宽度过滤={}, 历史波动率过滤={}",
+                atrFilter, bbWidthFilter, historicalVolFilter);
+
+        // 综合判断：三者都必须满足
+        return atrFilter && bbWidthFilter && historicalVolFilter;
     }
 
     /**
@@ -293,6 +342,92 @@ public abstract class AbstractTradingStrategy implements TradingStrategy {
 
         log.debug("布林带宽度: {}, 适宜带宽: {}", bandwidth, adequateBandwidth);
         return adequateBandwidth;
+    }
+    
+    /**
+     * 比较近期波动率与历史波动率，避免在波动率收缩时入场。
+     * @param historicalKlines 历史K线数据
+     * @return 如果近期波动率不低于长期波动率的70%，则为true
+     */
+    protected boolean checkHistoricalVolatility(List<HistoricalKLineEntity> historicalKlines) {
+        int shortPeriod = 20; // 短期窗口
+        int longPeriod = 100; // 长期窗口
+
+        if (historicalKlines.size() < longPeriod) {
+            log.debug("历史数据不足{}条，无法计算历史波动率比较", longPeriod);
+            return true;
+        }
+
+        // 计算短期和长期波动率
+        BigDecimal shortTermVol = calculateHistoricalVolatility(historicalKlines, shortPeriod);
+        BigDecimal longTermVol = calculateHistoricalVolatility(historicalKlines, longPeriod);
+
+        if (shortTermVol == null || longTermVol == null ||
+            longTermVol.compareTo(BigDecimal.ZERO) == 0) {
+            log.debug("波动率计算失败，跳过历史波动率比较");
+            return true;
+        }
+
+        // 计算波动率比率
+        BigDecimal volRatio = shortTermVol.divide(longTermVol, 4, RoundingMode.HALF_UP);
+
+        // 短期波动率不低于长期波动率的70%
+        BigDecimal minVolRatio = getParameter("minVolatilityRatio", new BigDecimal("0.7"));
+        boolean adequateRatio = volRatio.compareTo(minVolRatio) >= 0;
+
+        log.debug("短期波动率: {}, 长期波动率: {}, 比率: {}, 适宜比率: {}",
+                 shortTermVol, longTermVol, volRatio, adequateRatio);
+        return adequateRatio;
+    }
+
+    /**
+     * 计算历史波动率（年化标准差）。
+     * @param klines 历史K线数据
+     * @param period 计算周期
+     * @return 计算出的年化波动率，如果数据不足则返回null
+     */
+    private BigDecimal calculateHistoricalVolatility(List<HistoricalKLineEntity> klines, int period) {
+        int startIndex = Math.max(0, klines.size() - period);
+        List<HistoricalKLineEntity> sublist = klines.subList(startIndex, klines.size());
+
+        if (sublist.size() < 2) {
+            return null;
+        }
+
+        // 计算对数收益率
+        List<BigDecimal> returns = new ArrayList<>();
+        for (int i = 1; i < sublist.size(); i++) {
+            BigDecimal prevClose = sublist.get(i - 1).getClose();
+            BigDecimal currClose = sublist.get(i).getClose();
+
+            if (prevClose != null && currClose != null &&
+                prevClose.compareTo(BigDecimal.ZERO) > 0) {
+                // 使用对数收益率 ln(curr/prev)
+                double logReturn = Math.log(currClose.doubleValue() / prevClose.doubleValue());
+                returns.add(BigDecimal.valueOf(logReturn));
+            }
+        }
+
+        if (returns.isEmpty()) {
+            return null;
+        }
+
+        // 计算收益率平均值
+        BigDecimal sum = returns.stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal mean = sum.divide(BigDecimal.valueOf(returns.size()), 6, RoundingMode.HALF_UP);
+
+        // 计算方差
+        BigDecimal variance = returns.stream()
+                .map(r -> r.subtract(mean).pow(2))
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .divide(BigDecimal.valueOf(returns.size()), 6, RoundingMode.HALF_UP);
+
+        // 标准差作为波动率估计 (年化处理)
+        BigDecimal stdDev = BigDecimal.valueOf(Math.sqrt(variance.doubleValue()));
+        // 假设252个交易日
+        BigDecimal annualizedVol = stdDev.multiply(BigDecimal.valueOf(Math.sqrt(252)));
+
+        return annualizedVol;
     }
 
     TradingSignal createSignal(String symbol, TradingSignal.SignalType type, BigDecimal price,
