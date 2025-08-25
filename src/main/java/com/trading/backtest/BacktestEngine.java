@@ -106,6 +106,12 @@ public class BacktestEngine {
                     return createErrorResult(request, "无法找到开始时间");
                 }
 
+                int lookback = Optional.ofNullable(request.getIndicatorHistoryLookback()).orElse(50);
+                if (lookback < 50) {
+                    log.warn("策略需要至少50条指标历史数据进行趋势判断，但请求的回看窗口为{}。已强制修正为50。", lookback);
+                    lookback = 50;
+                }
+
                 log.info("数据预热完成，将从第 {} 个数据点开始回测 (共 {} 条数据)", startIndex, historicalDataWithWarmup.size());
 
                 for (int i = startIndex; i < series.getBarCount(); i++) {
@@ -113,7 +119,6 @@ public class BacktestEngine {
                     checkForTriggeredOrders(pendingOrders, currentData, portfolioManager);
                     portfolioManager.updatePositionsMarketValue(Map.of(currentData.getSymbol(), currentData.getClose()));
 
-                    int lookback = request.getIndicatorHistoryLookback();
                     List<TechnicalIndicators> indicatorHistory = new ArrayList<>();
                     for (int j = Math.max(0, i - lookback + 1); j <= i; j++) {
                         indicatorHistory.add(getIndicatorsForIndex(precalculatedIndicators, j));

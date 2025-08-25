@@ -15,6 +15,7 @@ import com.trading.domain.enums.OrderStatus;
 import com.trading.domain.vo.TechnicalIndicators;
 import com.trading.strategy.TradingStrategy;
 
+import cn.hutool.core.date.DateUtil;
 import lombok.extern.slf4j.Slf4j;
 
 /**
@@ -120,19 +121,11 @@ public abstract class AbstractTradingStrategy implements TradingStrategy {
             return createNoActionSignal(marketData.getSymbol(), "策略已禁用");
         }
 
-        // 趋势过滤
-        if (!isTrendFavorable(marketData, indicatorHistory)) {
-            return createNoActionSignal(marketData.getSymbol(), "趋势不利");
-        }
-
-        // 波动性过滤
-        if (!isVolatilityAdequate(marketData, historicalKlines, indicatorHistory)) {
-            return createNoActionSignal(marketData.getSymbol(), "波动性不适宜");
-        }
-
-        // 通过所有过滤器，执行具体策略
+        // 将过滤逻辑下放到具体的策略实现中
         return generateStrategySignal(marketData, historicalKlines, indicatorHistory, positions);
     }
+
+    
 
     /**
      * 具体的策略信号生成逻辑。
@@ -148,41 +141,41 @@ public abstract class AbstractTradingStrategy implements TradingStrategy {
             MarketData marketData,
             List<HistoricalKLineEntity> historicalKlines,
             List<TechnicalIndicators> indicatorHistory,
-            List<com.trading.domain.entity.Position> positions
-    );
-
+            List<com.trading.domain.entity.Position> positions);
 
     /**
      * 判断当前趋势是否有利。这是一个专业实现，综合考虑了多个因素。
      * 子类可以重写此方法或其辅助方法以自定义趋势判断逻辑。
-     * @param marketData 当前市场数据
+     * 
+     * @param marketData       当前市场数据
      * @param indicatorHistory 技术指标历史
      * @return 如果趋势有利于建仓，则返回 true
      */
     protected boolean isTrendFavorable(MarketData marketData, List<TechnicalIndicators> indicatorHistory) {
         // 数据量不足时，不进行严格的趋势判断，避免过滤掉早期机会
         if (indicatorHistory.size() < 50) { // 减少数据量要求至50，以适应不同长度的均线
-            log.debug("历史数据不足50条，跳过专业趋势分析");
-            return true; 
+            log.debug("{} 历史数据不足50条，跳过专业趋势分析", marketData.getTimestamp());
+            return true;
         }
-        
+
         TechnicalIndicators current = indicatorHistory.get(indicatorHistory.size() - 1);
         TechnicalIndicators previous = indicatorHistory.get(indicatorHistory.size() - 2);
 
         // 1. 多时间框架趋势确认 (均线多头排列)
         boolean multiTimeframeTrend = checkMultiTimeframeTrend(current);
-        
+
         // 2. 移动平均线斜率确认 (短期均线向上)
         boolean maSlope = checkMASlope(current, previous);
-        
+
         // 3. 趋势强度确认 (ADX > 20)
         boolean trendStrength = checkTrendStrength(current);
-        
+
         // 4. 价格与长期趋势关系确认 (价格在50周期均线之上)
         boolean pricePosition = checkPricePosition(marketData, current);
-        
-        log.debug("专业趋势分析结果: 多时间框架={}, 斜率={}, 强度={}, 价格位置={}", 
-            multiTimeframeTrend, maSlope, trendStrength, pricePosition);
+
+        log.debug("{} 专业趋势分析结果: 多时间框架={}, 斜率={}, 强度={}, 价格位置={}",
+                DateUtil.formatLocalDateTime(marketData.getTimestamp()),
+                multiTimeframeTrend, maSlope, trendStrength, pricePosition);
 
         // 综合判断：趋势强度满足，并且其他三个条件中至少满足两个
         return trendStrength && (multiTimeframeTrend && maSlope && pricePosition);
@@ -190,25 +183,27 @@ public abstract class AbstractTradingStrategy implements TradingStrategy {
 
     /**
      * 检查多时间框架趋势，确认均线是否形成多头排列。
+     * 
      * @param current 当前技术指标
      * @return 如果SMA20 > SMA50，则为true
      */
     protected boolean checkMultiTimeframeTrend(TechnicalIndicators current) {
         BigDecimal maShort = current.getSma20();
         BigDecimal maMedium = current.getSma50();
-        
+
         if (maShort == null || maMedium == null) {
             log.debug("短期或中期移动平均线数据不全，跳过多时间框架趋势检查");
             return true; // 数据不全时默认通过
         }
-        
+
         // 多头排列: 短周期 > 中周期
         return maShort.compareTo(maMedium) > 0;
     }
 
     /**
      * 检查短期移动平均线的斜率，确认趋势方向。
-     * @param current 当前技术指标
+     * 
+     * @param current  当前技术指标
      * @param previous 前一期技术指标
      * @return 如果SMA20正在上升，则为true
      */
@@ -227,17 +222,18 @@ public abstract class AbstractTradingStrategy implements TradingStrategy {
 
     /**
      * 检查趋势强度，要求ADX指标显示有明确的趋势。
+     * 
      * @param current 当前技术指标
      * @return 如果ADX > 20，则为true
      */
     protected boolean checkTrendStrength(TechnicalIndicators current) {
         BigDecimal adx = current.getAdx();
-        
+
         if (adx == null) {
             log.debug("ADX数据不可用，跳过趋势强度检查");
             return true; // 数据不全时默认通过
         }
-        
+
         // ADX > 20 表示趋势存在
         BigDecimal adxThreshold = getParameter("adxThreshold", new BigDecimal("20"));
         return adx.compareTo(adxThreshold) > 0;
@@ -245,31 +241,34 @@ public abstract class AbstractTradingStrategy implements TradingStrategy {
 
     /**
      * 检查当前价格与中期均线的关系，确认处于上升趋势中。
+     * 
      * @param marketData 当前市场数据
-     * @param current 当前技术指标
+     * @param current    当前技术指标
      * @return 如果价格高于SMA50，则为true
      */
     protected boolean checkPricePosition(MarketData marketData, TechnicalIndicators current) {
         BigDecimal price = marketData.getClose();
         BigDecimal maMedium = current.getSma50();
-        
+
         if (maMedium == null) {
-            log.debug("50周期均线数据不可用，跳过价格位置检查");
+            log.debug("{} 50周期均线数据不可用，跳过价格位置检查", DateUtil.formatLocalDateTime(marketData.getTimestamp()));
             return true; // 数据不全时默认通过
         }
-        
+
         // 价格位于50日均线之上，确认处于中期上升趋势中
         return price.compareTo(maMedium) > 0;
     }
 
     /**
      * 判断当前波动性是否足够且不过高。这是一个专业实现，综合使用ATR、布林带宽度和历史波动率。
-     * @param marketData 当前市场数据
+     * 
+     * @param marketData       当前市场数据
      * @param historicalKlines 历史K线数据
      * @param indicatorHistory 技术指标历史
      * @return 如果波动性在适宜范围内，则返回 true
      */
-    protected boolean isVolatilityAdequate(MarketData marketData, List<HistoricalKLineEntity> historicalKlines, List<TechnicalIndicators> indicatorHistory) {
+    protected boolean isVolatilityAdequate(MarketData marketData, List<HistoricalKLineEntity> historicalKlines,
+            List<TechnicalIndicators> indicatorHistory) {
         if (indicatorHistory.isEmpty()) {
             return false;
         }
@@ -278,12 +277,13 @@ public abstract class AbstractTradingStrategy implements TradingStrategy {
         boolean atrFilter = checkATRVolatility(marketData, indicatorHistory);
 
         // 2. 布林带宽度过滤
-        boolean bbWidthFilter = checkBollingerBandWidth(indicatorHistory);
+        boolean bbWidthFilter = checkBollingerBandWidth(marketData,indicatorHistory);
 
         // 3. 历史波动率比较
-        boolean historicalVolFilter = checkHistoricalVolatility(historicalKlines);
+        boolean historicalVolFilter = checkHistoricalVolatility(marketData,historicalKlines);
 
-        log.debug("专业波动率分析结果: ATR过滤={}, 布林带宽度过滤={}, 历史波动率过滤={}",
+        log.debug("{} 专业波动率分析结果: ATR过滤={}, 布林带宽度过滤={}, 历史波动率过滤={}",
+                DateUtil.formatLocalDateTime(marketData.getTimestamp()),
                 atrFilter, bbWidthFilter, historicalVolFilter);
 
         // 综合判断：三者都必须满足
@@ -292,7 +292,8 @@ public abstract class AbstractTradingStrategy implements TradingStrategy {
 
     /**
      * 使用ATR（平均真实波幅）占价格的百分比来检查波动性。
-     * @param marketData 当前市场数据
+     * 
+     * @param marketData       当前市场数据
      * @param indicatorHistory 技术指标历史
      * @return 如果ATR百分比在0.8%到5%之间，则为true
      */
@@ -302,7 +303,7 @@ public abstract class AbstractTradingStrategy implements TradingStrategy {
         BigDecimal price = marketData.getClose();
 
         if (atr == null || price == null || price.compareTo(BigDecimal.ZERO) == 0) {
-            log.debug("ATR或价格数据不可用，跳过ATR波动率检查");
+            log.debug("{} ATR或价格数据不可用，跳过ATR波动率检查", DateUtil.formatLocalDateTime(marketData.getTimestamp()));
             return true; // 数据不足时默认通过
         }
 
@@ -313,18 +314,20 @@ public abstract class AbstractTradingStrategy implements TradingStrategy {
         BigDecimal maxAtrPercentage = getParameter("maxAtrPercentage", new BigDecimal("0.05"));
 
         boolean adequateVolatility = atrPercentage.compareTo(minAtrPercentage) > 0 &&
-                                   atrPercentage.compareTo(maxAtrPercentage) < 0;
+                atrPercentage.compareTo(maxAtrPercentage) < 0;
 
-        log.debug("ATR百分比: {}, 适宜波动率: {}", atrPercentage, adequateVolatility);
+        log.debug("{} ATR百分比: {}, 适宜波动率: {}", DateUtil.formatLocalDateTime(marketData.getTimestamp()), atrPercentage,
+                adequateVolatility);
         return adequateVolatility;
     }
 
     /**
      * 使用布林带宽度来检查波动性。
+     * 
      * @param indicatorHistory 技术指标历史
      * @return 如果布林带宽度在1.5%到15%之间，则为true
      */
-    protected boolean checkBollingerBandWidth(List<TechnicalIndicators> indicatorHistory) {
+    protected boolean checkBollingerBandWidth(MarketData marketData, List<TechnicalIndicators> indicatorHistory) {
         TechnicalIndicators current = indicatorHistory.get(indicatorHistory.size() - 1);
         BigDecimal bandwidth = current.getBandwidth();
 
@@ -338,23 +341,25 @@ public abstract class AbstractTradingStrategy implements TradingStrategy {
         BigDecimal maxBandwidth = getParameter("maxBandwidth", new BigDecimal("0.15"));
 
         boolean adequateBandwidth = bandwidth.compareTo(minBandwidth) > 0 &&
-                                  bandwidth.compareTo(maxBandwidth) < 0;
+                bandwidth.compareTo(maxBandwidth) < 0;
 
-        log.debug("布林带宽度: {}, 适宜带宽: {}", bandwidth, adequateBandwidth);
+        log.debug("{} 布林带宽度: {}, 适宜带宽: {}", DateUtil.formatLocalDateTime(marketData.getTimestamp()), bandwidth,
+                adequateBandwidth);
         return adequateBandwidth;
     }
-    
+
     /**
      * 比较近期波动率与历史波动率，避免在波动率收缩时入场。
+     * 
      * @param historicalKlines 历史K线数据
      * @return 如果近期波动率不低于长期波动率的70%，则为true
      */
-    protected boolean checkHistoricalVolatility(List<HistoricalKLineEntity> historicalKlines) {
+    protected boolean checkHistoricalVolatility(MarketData marketData, List<HistoricalKLineEntity> historicalKlines) {
         int shortPeriod = 20; // 短期窗口
         int longPeriod = 100; // 长期窗口
 
         if (historicalKlines.size() < longPeriod) {
-            log.debug("历史数据不足{}条，无法计算历史波动率比较", longPeriod);
+            log.debug("{} 历史数据不足{}条，无法计算历史波动率比较", DateUtil.formatLocalDateTime(marketData.getTimestamp()), longPeriod);
             return true;
         }
 
@@ -363,7 +368,7 @@ public abstract class AbstractTradingStrategy implements TradingStrategy {
         BigDecimal longTermVol = calculateHistoricalVolatility(historicalKlines, longPeriod);
 
         if (shortTermVol == null || longTermVol == null ||
-            longTermVol.compareTo(BigDecimal.ZERO) == 0) {
+                longTermVol.compareTo(BigDecimal.ZERO) == 0) {
             log.debug("波动率计算失败，跳过历史波动率比较");
             return true;
         }
@@ -375,13 +380,14 @@ public abstract class AbstractTradingStrategy implements TradingStrategy {
         BigDecimal minVolRatio = getParameter("minVolatilityRatio", new BigDecimal("0.7"));
         boolean adequateRatio = volRatio.compareTo(minVolRatio) >= 0;
 
-        log.debug("短期波动率: {}, 长期波动率: {}, 比率: {}, 适宜比率: {}",
-                 shortTermVol, longTermVol, volRatio, adequateRatio);
+        log.debug("{} 短期波动率: {}, 长期波动率: {}, 比率: {}, 适宜比率: {}",DateUtil.formatLocalDateTime(marketData.getTimestamp()),
+                shortTermVol, longTermVol, volRatio, adequateRatio);
         return adequateRatio;
     }
 
     /**
      * 计算历史波动率（年化标准差）。
+     * 
      * @param klines 历史K线数据
      * @param period 计算周期
      * @return 计算出的年化波动率，如果数据不足则返回null
@@ -401,7 +407,7 @@ public abstract class AbstractTradingStrategy implements TradingStrategy {
             BigDecimal currClose = sublist.get(i).getClose();
 
             if (prevClose != null && currClose != null &&
-                prevClose.compareTo(BigDecimal.ZERO) > 0) {
+                    prevClose.compareTo(BigDecimal.ZERO) > 0) {
                 // 使用对数收益率 ln(curr/prev)
                 double logReturn = Math.log(currClose.doubleValue() / prevClose.doubleValue());
                 returns.add(BigDecimal.valueOf(logReturn));

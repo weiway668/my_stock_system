@@ -53,17 +53,17 @@ public class AdaptiveBollingerStrategy extends AbstractTradingStrategy {
 
     @Override
     protected TradingSignal generateStrategySignal(MarketData marketData, List<com.trading.domain.entity.HistoricalKLineEntity> historicalKlines, List<TechnicalIndicators> indicatorHistory, List<Position> positions) {
-        if (!this.isEnabled() || indicatorHistory.isEmpty()) {
-            return createNoActionSignal(marketData.getSymbol(),"策略未启用或指标历史为空");
+        if (indicatorHistory.isEmpty()) {
+            return createNoActionSignal(marketData.getSymbol(),"指标历史为空");
         }
 
         TechnicalIndicators indicators = indicatorHistory.get(indicatorHistory.size() - 1);
         MarketState marketState = identifyMarketState(marketData, indicators);
 
         return switch (marketState) {
-            case RANGING -> handleRangingMarket(marketData, indicators, positions);
-            case TRENDING -> handleTrendingMarket(marketData, indicators, positions);
-            case VOLATILE -> handleVolatileMarket(marketData, indicators, positions);
+            case RANGING -> handleRangingMarket(marketData, historicalKlines, indicatorHistory, positions);
+            case TRENDING -> handleTrendingMarket(marketData, historicalKlines, indicatorHistory, positions);
+            case VOLATILE -> handleVolatileMarket(marketData, positions);
         };
     }
 
@@ -88,37 +88,41 @@ public class AdaptiveBollingerStrategy extends AbstractTradingStrategy {
         return MarketState.VOLATILE;
     }
 
-    private TradingSignal handleRangingMarket(MarketData marketData, TechnicalIndicators indicators,
-            List<Position> positions) {
+    private TradingSignal handleRangingMarket(MarketData marketData, List<com.trading.domain.entity.HistoricalKLineEntity> historicalKlines, List<TechnicalIndicators> indicatorHistory, List<Position> positions) {
         String paramsKey = config.getAdaptive().getRangingParamsKey();
-        TechnicalIndicators.BollingerBandSet bb = indicators.getBollingerBands().get(paramsKey);
+        TechnicalIndicators.BollingerBandSet bb = indicatorHistory.get(indicatorHistory.size() - 1).getBollingerBands().get(paramsKey);
         if (bb == null){
             return createNoActionSignal(marketData.getSymbol(),"缺少盘整市参数的布林带指标: " + paramsKey);
         }
-        // 在盘整市，使用均值回归逻辑
+        
         BigDecimal price = marketData.getClose();
         boolean hasPosition = positions.stream()
                 .anyMatch(p -> p.getSymbol().equals(marketData.getSymbol()) && p.getQuantity() > 0);
 
-        BigDecimal lowerBandWithBuffer = bb.getLowerBand().multiply(BigDecimal.valueOf(config.getAdaptive().getRangingLowerBufferFactor()));
+        // Sell logic (unfiltered)
         BigDecimal upperBandWithBuffer = bb.getUpperBand().multiply(BigDecimal.valueOf(config.getAdaptive().getRangingUpperBufferFactor()));
-
-        if (!hasPosition && price.compareTo(lowerBandWithBuffer) <= 0) {
-            return createSignal(marketData.getSymbol(), TradingSignal.SignalType.BUY, price, 0.8, "盘整市接近布林带下轨(缓冲)");
-        } else if (hasPosition && price.compareTo(upperBandWithBuffer) >= 0) {
+        if (hasPosition && price.compareTo(upperBandWithBuffer) >= 0) {
             return createSignal(marketData.getSymbol(), TradingSignal.SignalType.SELL, price, 0.8, "盘整市接近布林带上轨(缓冲)");
         }
+
+        // Buy logic (filtered)
+        BigDecimal lowerBandWithBuffer = bb.getLowerBand().multiply(BigDecimal.valueOf(config.getAdaptive().getRangingLowerBufferFactor()));
+        if (!hasPosition && price.compareTo(lowerBandWithBuffer) <= 0) {
+            if (isTrendFavorable(marketData, indicatorHistory) && isVolatilityAdequate(marketData, historicalKlines, indicatorHistory)) {
+                 return createSignal(marketData.getSymbol(), TradingSignal.SignalType.BUY, price, 0.8, "盘整市接近布林带下轨(已过滤)");
+            }
+        }
+
         return createNoActionSignal(marketData.getSymbol(),"盘整市，等待价格触及轨道缓冲区域");
     }
 
-    private TradingSignal handleTrendingMarket(MarketData marketData, TechnicalIndicators indicators,
-            List<Position> positions) {
+    private TradingSignal handleTrendingMarket(MarketData marketData, List<com.trading.domain.entity.HistoricalKLineEntity> historicalKlines, List<TechnicalIndicators> indicatorHistory, List<Position> positions) {
         String paramsKey = config.getAdaptive().getTrendingParamsKey();
-        TechnicalIndicators.BollingerBandSet bb = indicators.getBollingerBands().get(paramsKey);
+        TechnicalIndicators.BollingerBandSet bb = indicatorHistory.get(indicatorHistory.size() - 1).getBollingerBands().get(paramsKey);
         if (bb == null){
             return createNoActionSignal(marketData.getSymbol(),"缺少趋势市参数的布林带指标: " + paramsKey);
         }
-        // 在趋势市，使用谨慎突破逻辑
+
         BigDecimal price = marketData.getClose();
         boolean hasPosition = positions.stream()
                 .anyMatch(p -> p.getSymbol().equals(marketData.getSymbol()) && p.getQuantity() > 0);
@@ -127,17 +131,15 @@ public class AdaptiveBollingerStrategy extends AbstractTradingStrategy {
         BigDecimal upperBandWithBuffer = bb.getUpperBand().multiply(BigDecimal.valueOf(config.getAdaptive().getTrendingUpperLimitFactor()));
 
         if (!hasPosition && price.compareTo(middleBandWithBuffer) > 0 && price.compareTo(upperBandWithBuffer) < 0) {
-            return createSignal(marketData.getSymbol(), TradingSignal.SignalType.BUY, price, 0.6, "趋势市突破中轨且未接近上轨");
+            if (isTrendFavorable(marketData, indicatorHistory) && isVolatilityAdequate(marketData, historicalKlines, indicatorHistory)) {
+                return createSignal(marketData.getSymbol(), TradingSignal.SignalType.BUY, price, 0.6, "趋势市突破中轨(已过滤)");
+            }
         }
-        // 在趋势市，通常不轻易做空，仅在价格跌破中轨时平仓 (此为原有逻辑，予以保留作为风控)
-        // else if (hasPosition && price.compareTo(bb.getMiddleBand()) < 0) {
-        //     return createSignal(marketData.getSymbol(), TradingSignal.SignalType.SELL, price, 0.9, "趋势市跌破中轨，止盈/止损");
-        // }
+
         return createNoActionSignal(marketData.getSymbol(),"趋势市，等待谨慎突破信号");
     }
 
-    private TradingSignal handleVolatileMarket(MarketData marketData, TechnicalIndicators indicators,
-            List<Position> positions) {
+    private TradingSignal handleVolatileMarket(MarketData marketData, List<Position> positions) {
         // 在高波动市场，策略保持谨慎，不进行任何操作
         return createNoActionSignal(marketData.getSymbol(),"市场波动剧烈，暂停交易");
     }

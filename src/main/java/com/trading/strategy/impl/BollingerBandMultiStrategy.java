@@ -98,16 +98,21 @@ public class BollingerBandMultiStrategy extends AbstractTradingStrategy {
             return createNoActionSignal(marketData.getSymbol(),"策略未启用或无子策略或指标历史为空");
         }
 
-        for (BollingerBandSubStrategy subStrategy : subStrategies) {
-            try {
-                Optional<TradingSignal> signal = subStrategy.generateSignal(marketData, indicatorHistory, positions);
-                if (signal.isPresent() && signal.get().getType() != TradingSignal.SignalType.NO_ACTION) {
-                    return signal.get();
+        // 只有在宏观趋势和波动率都适宜的情况下，才考虑具体的子策略信号
+        if (isTrendFavorable(marketData, indicatorHistory) && isVolatilityAdequate(marketData, historicalKlines, indicatorHistory)) {
+            for (BollingerBandSubStrategy subStrategy : subStrategies) {
+                try {
+                    Optional<TradingSignal> signal = subStrategy.generateSignal(marketData, indicatorHistory, positions);
+                    if (signal.isPresent() && signal.get().getType() != TradingSignal.SignalType.NO_ACTION) {
+                        return signal.get();
+                    }
+                } catch (Exception e) {
+                    log.error("执行子策略 [{}] 时发生错误: symbol={}, price={}",
+                            subStrategy.getName(), marketData.getSymbol(), marketData.getClose(), e);
                 }
-            } catch (Exception e) {
-                log.error("执行子策略 [{}] 时发生错误: symbol={}, price={}",
-                        subStrategy.getName(), marketData.getSymbol(), marketData.getClose(), e);
             }
+        } else {
+            return createNoActionSignal(marketData.getSymbol(), "宏观环境不适宜开仓");
         }
 
         return createNoActionSignal(marketData.getSymbol(),"所有布林带子策略均未触发");

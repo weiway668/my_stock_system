@@ -84,7 +84,11 @@ public class BollingerBandFilterStrategy extends AbstractTradingStrategy {
         if (positionOpt.isPresent()) {
             return checkForSellSignal(marketData, currentIndicators, prevIndicators, positionOpt.get());
         } else {
-            return checkForBuySignal(marketData, currentIndicators, prevIndicators);
+            // 仅在趋势和波动性都适宜时，才检查买入信号
+            if (isTrendFavorable(marketData, indicatorHistory) && isVolatilityAdequate(marketData, historicalKlines, indicatorHistory)) {
+                return checkForBuySignal(marketData, currentIndicators, prevIndicators);
+            }
+            return createNoActionSignal(marketData.getSymbol(), "趋势或波动性不适宜买入");
         }
     }
 
@@ -133,38 +137,38 @@ public class BollingerBandFilterStrategy extends AbstractTradingStrategy {
         log.debug("Price: {}, Upper: {}, Middle: {}, Lower: {}, Width: {}",
                 price, bb.getUpperBand(), bb.getMiddleBand(), bb.getLowerBand(), width);
 
-        // --- 检查禁止买入区域 ---
-        boolean isForbiddenPrice = price
-                .compareTo(bb.getUpperBand().multiply(BigDecimal.valueOf(forbiddenUpperBandProximity))) > 0;
+        // // --- 检查禁止买入区域 ---
+        // boolean isForbiddenPrice = price
+        //         .compareTo(bb.getUpperBand().multiply(BigDecimal.valueOf(forbiddenUpperBandProximity))) > 0;
 
-        if (isForbiddenPrice) {
-            log.debug("{} [Forbidden Rule 1 上轨附近绝对禁止] Price > Upper * {}: {} (Price={},Threshold={})",
-                    marketData.getTimestamp(),
-                    forbiddenUpperBandProximity, isForbiddenPrice, price,
-                    bb.getUpperBand().multiply(BigDecimal.valueOf(forbiddenUpperBandProximity)));
-            return createNoActionSignal(marketData.getSymbol(), "禁止买入: 价格过高，接近上轨");
-        }
+        // if (isForbiddenPrice) {
+        //     log.debug("{} [Forbidden Rule 1 上轨附近绝对禁止] Price > Upper * {}: {} (Price={},Threshold={})",
+        //             marketData.getTimestamp(),
+        //             forbiddenUpperBandProximity, isForbiddenPrice, price,
+        //             bb.getUpperBand().multiply(BigDecimal.valueOf(forbiddenUpperBandProximity)));
+        //     return createNoActionSignal(marketData.getSymbol(), "禁止买入: 价格过高，接近上轨");
+        // }
 
-        boolean isForbiddenWidth = width.compareTo(BigDecimal.valueOf(forbiddenSqueezeWidth)) < 0;
+        // boolean isForbiddenWidth = width.compareTo(BigDecimal.valueOf(forbiddenSqueezeWidth)) < 0;
 
-        if (isForbiddenWidth) {
-            log.debug("{} [Forbidden Rule 2 挤压状态禁止] Width < {}: {} (Width={})", marketData.getTimestamp(),
-                    forbiddenSqueezeWidth, isForbiddenWidth, width);
-            return createNoActionSignal(marketData.getSymbol(), "禁止买入: 布林带挤压");
-        }
+        // if (isForbiddenWidth) {
+        //     log.debug("{} [Forbidden Rule 2 挤压状态禁止] Width < {}: {} (Width={})", marketData.getTimestamp(),
+        //             forbiddenSqueezeWidth, isForbiddenWidth, width);
+        //     return createNoActionSignal(marketData.getSymbol(), "禁止买入: 布林带挤压");
+        // }
 
-        BigDecimal middleBandSlope = bb.getMiddleBand()
-                .subtract(prevIndicators.getBollingerBands().get("default").getMiddleBand());
-        boolean isForbiddenMomentum = price.compareTo(bb.getMiddleBand()) > 0
-                && middleBandSlope.compareTo(BigDecimal.ZERO) < 0;
+        // BigDecimal middleBandSlope = bb.getMiddleBand()
+        //         .subtract(prevIndicators.getBollingerBands().get("default").getMiddleBand());
+        // boolean isForbiddenMomentum = price.compareTo(bb.getMiddleBand()) > 0
+        //         && middleBandSlope.compareTo(BigDecimal.ZERO) < 0;
 
-        if (isForbiddenMomentum) {
-            log.debug(
-                    "{} [Forbidden Rule 3 中轨上方且动能减弱] Price > Middle AND Momentum < 0: {} (Price={},Middle={}, Slope={})",
-                    marketData.getTimestamp(),
-                    isForbiddenMomentum, price, bb.getMiddleBand(), middleBandSlope);
-            return createNoActionSignal(marketData.getSymbol(), "禁止买入: 中轨上方但动能减弱");
-        }
+        // if (isForbiddenMomentum) {
+        //     log.debug(
+        //             "{} [Forbidden Rule 3 中轨上方且动能减弱] Price > Middle AND Momentum < 0: {} (Price={},Middle={}, Slope={})",
+        //             marketData.getTimestamp(),
+        //             isForbiddenMomentum, price, bb.getMiddleBand(), middleBandSlope);
+        //     return createNoActionSignal(marketData.getSymbol(), "禁止买入: 中轨上方但动能减弱");
+        // }
 
         // --- 检查买入条件 ---
         boolean positionCondition = price.compareTo(bb.getMiddleBand()) < 0;
@@ -173,11 +177,11 @@ public class BollingerBandFilterStrategy extends AbstractTradingStrategy {
                     marketData.getTimestamp(), positionCondition, price,
                     bb.getMiddleBand());
         }
-        boolean widthCondition = width.compareTo(BigDecimal.valueOf(0.015)) > 0
-                && width.compareTo(BigDecimal.valueOf(0.05)) < 0;
-        if (widthCondition) {
-            log.debug("{} [Buy Condition 2 带宽正常] 0.015 < Width < 0.05: {} (Width={})", marketData.getTimestamp(),widthCondition, width);
-        }
+        // boolean widthCondition = width.compareTo(BigDecimal.valueOf(0.015)) > 0
+        //         && width.compareTo(BigDecimal.valueOf(0.05)) < 0;
+        // if (widthCondition) {
+        //     log.debug("{} [Buy Condition 2 带宽正常] 0.015 < Width < 0.05: {} (Width={})", marketData.getTimestamp(),widthCondition, width);
+        // }
         Long currentVolume = currentIndicators.getVolume();
         BigDecimal avgVolume = currentIndicators.getVolumeSma();
         boolean volumeCondition = false;
@@ -195,8 +199,8 @@ public class BollingerBandFilterStrategy extends AbstractTradingStrategy {
         // buyVolumeFactor);
         // }
 
-        if (positionCondition && widthCondition && volumeCondition) {
-            log.debug("{} Buy Signal OK (所有买入条件均满足，生成买入信号)", marketData.getTimestamp());
+        if (positionCondition  && volumeCondition) {
+            log.debug("{} Buy Condition OK (所有买入条件均满足，生成买入信号)", marketData.getTimestamp());
             return createSignal(marketData.getSymbol(), TradingSignal.SignalType.BUY, price, 0.75, "满足所有买入条件");
         }
 

@@ -63,104 +63,48 @@ public class MACDTradingStrategy extends AbstractTradingStrategy {
     protected TradingSignal generateStrategySignal(MarketData marketData, List<com.trading.domain.entity.HistoricalKLineEntity> historicalKlines, List<TechnicalIndicators> indicatorHistory, List<Position> positions) {
         
         if (indicatorHistory == null || indicatorHistory.size() < 2) {
-            return TradingSignal.builder().type(TradingSignal.SignalType.NO_ACTION).reason("等待足够的指标历史数据").build();
+            return createNoActionSignal(marketData.getSymbol(), "指标历史不足");
         }
 
-        TechnicalIndicators indicators = indicatorHistory.get(indicatorHistory.size() - 1); // 当前指标
-        TechnicalIndicators previousIndicators = indicatorHistory.get(indicatorHistory.size() - 2); // 前一期指标
+        TechnicalIndicators indicators = indicatorHistory.get(indicatorHistory.size() - 1);
+        TechnicalIndicators previousIndicators = indicatorHistory.get(indicatorHistory.size() - 2);
 
-        if (!isEnabled()) {
-            return TradingSignal.builder()
-                .type(TradingSignal.SignalType.NO_ACTION)
-                .symbol(marketData.getSymbol())
-                .timestamp(LocalDateTime.now())
-                .reason("策略未启用")
-                .build();
-        }
-        
-        // 获取当前持仓数量
-        int currentPositions = positions != null ? positions.size() : 0;
-        int maxPositions = getParameter(PARAM_MAX_POSITIONS, DEFAULT_MAX_POSITIONS);
-        
-        // 检查MACD金叉
-        if (previousIndicators.hasBullishMacdCrossover(indicators)) {
-            BigDecimal confidence = calculateBullishConfidence(indicators, marketData);
-            
-            if (confidence.compareTo(getParameter(PARAM_MIN_CONFIDENCE, DEFAULT_MIN_CONFIDENCE)) >= 0 
-                && currentPositions < maxPositions) {
-                
-                log.info("MACD金叉信号: symbol={}, confidence={}", 
-                    marketData.getSymbol(), confidence);
-                
-                Map<String, Object> metadata = new HashMap<>();
-                metadata.put("macd", indicators.getMacdLine());
-                metadata.put("signal", indicators.getSignalLine());
-                metadata.put("histogram", indicators.getHistogram());
-                metadata.put("rsi", indicators.getRsi());
-                
-                TradingSignal signal = TradingSignal.builder()
-                    .type(TradingSignal.SignalType.BUY)
-                    .symbol(marketData.getSymbol())
-                    .price(marketData.getClose())
-                    .confidence(confidence)
-                    .timestamp(LocalDateTime.now())
-                    .reason("MACD金叉，RSI支持")
-                    .metadata(metadata)
-                    .build();
-                
-                previousIndicators = indicators;
-                return signal;
-            }
-        }
-        
-        // 检查MACD死叉
+        // 1. 优先检查卖出信号（不受过滤器限制）
         if (previousIndicators.hasBearishMacdCrossover(indicators)) {
             BigDecimal confidence = calculateBearishConfidence(indicators, marketData);
-            
             if (confidence.compareTo(getParameter(PARAM_MIN_CONFIDENCE, DEFAULT_MIN_CONFIDENCE)) >= 0) {
-                
-                log.info("MACD死叉信号: symbol={}, confidence={}", 
-                    marketData.getSymbol(), confidence);
-                
-                Map<String, Object> metadata = new HashMap<>();
-                metadata.put("macd", indicators.getMacdLine());
-                metadata.put("signal", indicators.getSignalLine());
-                metadata.put("histogram", indicators.getHistogram());
-                metadata.put("rsi", indicators.getRsi());
-                
-                // 检查是否有多仓需要平仓
                 boolean hasLongPosition = positions.stream()
-                    .anyMatch(p -> p.getSymbol().equals(marketData.getSymbol()) 
-                        && p.getQuantity() > 0);
+                    .anyMatch(p -> p.getSymbol().equals(marketData.getSymbol()) && p.getQuantity() > 0);
                 
-                TradingSignal.SignalType signalType = hasLongPosition ? 
-                    TradingSignal.SignalType.CLOSE_LONG : TradingSignal.SignalType.SELL;
-                
-                TradingSignal signal = TradingSignal.builder()
-                    .type(signalType)
-                    .symbol(marketData.getSymbol())
-                    .price(marketData.getClose())
-                    .confidence(confidence)
-                    .timestamp(LocalDateTime.now())
-                    .reason("MACD死叉，RSI确认")
-                    .metadata(metadata)
-                    .build();
-                
-                previousIndicators = indicators;
-                return signal;
+                if (hasLongPosition) {
+                     log.info("MACD死叉平仓信号: symbol={}, confidence={}", marketData.getSymbol(), confidence);
+                    return createSignal(marketData.getSymbol(), TradingSignal.SignalType.CLOSE_LONG, marketData.getClose(), confidence.doubleValue(), "MACD死叉，平仓");
+                }
+            }
+        }
+
+        // 2. 检查是否已持仓，如果已持仓，则不再开新仓
+        boolean hasPosition = positions.stream()
+            .anyMatch(p -> p.getSymbol().equals(marketData.getSymbol()) && p.getQuantity() > 0);
+        if (hasPosition) {
+            return createNoActionSignal(marketData.getSymbol(), "已持仓，等待卖出信号");
+        }
+
+        // 3. 在满足过滤条件的前提下，检查买入信号
+        if (isTrendFavorable(marketData, indicatorHistory) && isVolatilityAdequate(marketData, historicalKlines, indicatorHistory)) {
+            if (previousIndicators.hasBullishMacdCrossover(indicators)) {
+                BigDecimal confidence = calculateBullishConfidence(indicators, marketData);
+                int maxPositions = getParameter(PARAM_MAX_POSITIONS, DEFAULT_MAX_POSITIONS);
+
+                if (confidence.compareTo(getParameter(PARAM_MIN_CONFIDENCE, DEFAULT_MIN_CONFIDENCE)) >= 0 && positions.size() < maxPositions) {
+                    log.info("MACD金叉买入信号: symbol={}, confidence={}", marketData.getSymbol(), confidence);
+                    return createSignal(marketData.getSymbol(), TradingSignal.SignalType.BUY, marketData.getClose(), confidence.doubleValue(), "MACD金叉，趋势与波动性确认");
+                }
             }
         }
         
-        // 更新历史指标
-        previousIndicators = indicators;
-        
-        // 无交易信号
-        return TradingSignal.builder()
-            .type(TradingSignal.SignalType.HOLD)
-            .symbol(marketData.getSymbol())
-            .timestamp(LocalDateTime.now())
-            .reason("等待交易机会")
-            .build();
+        // 4. 无任何操作
+        return createNoActionSignal(marketData.getSymbol(), "等待交易机会");
     }
     
     @Override
