@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 自适应布林带策略
@@ -57,6 +58,20 @@ public class AdaptiveBollingerStrategy extends AbstractTradingStrategy {
             return createNoActionSignal(marketData.getSymbol(),"指标历史为空");
         }
 
+        // 检查是否已持仓
+        Optional<Position> positionOpt = positions.stream()
+                .filter(p -> p.getSymbol().equals(marketData.getSymbol()) && p.getQuantity() > 0)
+                .findFirst();
+
+        // 如果持仓，优先执行通用卖出信号框架
+        if (positionOpt.isPresent()) {
+            Optional<TradingSignal> sellSignal = checkForBaseSellSignal(positionOpt.get(), marketData, historicalKlines, indicatorHistory);
+            if (sellSignal.isPresent()) {
+                return sellSignal.get();
+            }
+        }
+
+        // 如果通用卖出框架未触发，或当前未持仓，则执行策略原有的买卖逻辑
         TechnicalIndicators indicators = indicatorHistory.get(indicatorHistory.size() - 1);
         MarketState marketState = identifyMarketState(marketData, indicators);
 

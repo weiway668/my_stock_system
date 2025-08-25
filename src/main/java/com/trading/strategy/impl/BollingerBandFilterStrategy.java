@@ -82,6 +82,12 @@ public class BollingerBandFilterStrategy extends AbstractTradingStrategy {
                 .findFirst();
 
         if (positionOpt.isPresent()) {
+            // 1. 优先执行通用卖出框架（止损、止盈等）
+            Optional<TradingSignal> genericSellSignal = checkForBaseSellSignal(positionOpt.get(), marketData, historicalKlines, indicatorHistory);
+            if (genericSellSignal.isPresent()) {
+                return genericSellSignal.get();
+            }
+            // 2. 如果通用框架不触发，再执行本策略特有的卖出逻辑
             return checkForSellSignal(marketData, currentIndicators, prevIndicators, positionOpt.get());
         } else {
             // 仅在趋势和波动性都适宜时，才检查买入信号

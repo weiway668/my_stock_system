@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 import com.trading.domain.entity.HistoricalKLineEntity;
@@ -649,5 +650,142 @@ public abstract class AbstractTradingStrategy implements TradingStrategy {
      */
     protected void setParameter(String key, Object value) {
         parameters.put(key, value);
+    }
+
+    // ==================== 卖出信号检查框架 ====================
+
+    /**
+     * 协调所有卖出信号检查的顶层方法。
+     * 按“止损 -> 止盈 -> 动量衰竭”的顺序进行检查。
+     * @param position 当前持仓
+     * @param marketData 当前市场数据
+     * @param historicalKlines 历史K线
+     * @param indicatorHistory 历史指标
+     * @return 如果有卖出信号，则返回一个包含信号的Optional，否则返回empty
+     */
+    protected final Optional<TradingSignal> checkForBaseSellSignal(
+            com.trading.domain.entity.Position position,
+            MarketData marketData,
+            List<HistoricalKLineEntity> historicalKlines,
+            List<TechnicalIndicators> indicatorHistory) {
+
+        // 1. 追踪止损检查
+        Optional<TradingSignal> trailingStopSignal = checkTrailingStopLoss(position, marketData, indicatorHistory);
+        if (trailingStopSignal.isPresent()) {
+            return trailingStopSignal;
+        }
+
+        // 2. 部分获利了结检查
+        Optional<TradingSignal> partialProfitSignal = checkPartialProfitTaking(position, marketData, indicatorHistory);
+        if (partialProfitSignal.isPresent()) {
+            return partialProfitSignal;
+        }
+
+        // 3. 动量衰竭检测
+        Optional<TradingSignal> momentumExhaustionSignal = checkMomentumExhaustion(marketData, indicatorHistory);
+        if (momentumExhaustionSignal.isPresent()) {
+            return momentumExhaustionSignal;
+        }
+
+        return Optional.empty();
+    }
+
+    /**
+     * 检查追踪止损条件。
+     * 当前实现：基于ATR的追踪止损。
+     * @param position 当前持仓
+     * @param marketData 当前市场数据
+     * @param indicatorHistory 历史指标
+     * @return 止损信号
+     */
+    protected Optional<TradingSignal> checkTrailingStopLoss(com.trading.domain.entity.Position position, MarketData marketData, List<TechnicalIndicators> indicatorHistory) {
+        // TODO: 增强此方法以支持基于持仓最高价的百分比回撤止损，这需要扩展Position实体来记录最高价。
+        final double TRAILING_STOP_ATR_MULTIPLIER = 3.0; // 参数未来可配置
+
+        TechnicalIndicators currentIndicators = indicatorHistory.get(indicatorHistory.size() - 1);
+        BigDecimal atr = currentIndicators.getAtr();
+        if (atr == null || atr.compareTo(BigDecimal.ZERO) <= 0) {
+            return Optional.empty(); // ATR不可用，无法计算
+        }
+
+        BigDecimal price = marketData.getClose();
+        BigDecimal atrDistance = atr.multiply(BigDecimal.valueOf(TRAILING_STOP_ATR_MULTIPLIER));
+        BigDecimal trailingStopLevel = price.subtract(atrDistance);
+
+        // 实际应用中，trailingStopLevel应该是持续上升的，这里简化为每次动态计算。
+        // 触发条件：当前价格低于动态计算的止损位。注意：这是一个非常激进的止损，因为它总是跟随价格向下移动。
+        // 一个更稳健的实现需要将止损位持久化，并确保它只上移，不上移。
+        if (price.compareTo(trailingStopLevel) <= 0) {
+            String reason = String.format("触发ATR追踪止损: 当前价 %s <= 止损水平 %s (ATR Multiplier: %.1f)", price, trailingStopLevel, TRAILING_STOP_ATR_MULTIPLIER);
+            log.info("{} {}", marketData.getSymbol(), reason);
+            return Optional.of(createSignal(marketData.getSymbol(), TradingSignal.SignalType.SELL, price, 1.0, reason));
+        }
+
+        return Optional.empty();
+    }
+
+    /**
+     * 检查部分获利了结条件。
+     * 当前实现：当价格接近布林带上轨时，卖出部分仓位。
+     * @param position 当前持仓
+     * @param marketData 当前市场数据
+     * @param indicatorHistory 历史指标
+     * @return 部分平仓信号
+     */
+    protected Optional<TradingSignal> checkPartialProfitTaking(com.trading.domain.entity.Position position, MarketData marketData, List<TechnicalIndicators> indicatorHistory) {
+        // TODO: 增强此方法以支持多级、按收益率百分比的部分止盈，这需要扩展Position实体来记录已执行的止盈级别。
+        final double BB_UPPER_BAND_PROXIMITY = 0.98; // 价格达到上轨的98%时触发
+        final double PARTIAL_SELL_RATIO = 0.3; // 卖出30%的仓位
+
+        TechnicalIndicators currentIndicators = indicatorHistory.get(indicatorHistory.size() - 1);
+        TechnicalIndicators.BollingerBandSet bb = currentIndicators.getBollingerBands().get("default");
+        if (bb == null || bb.getUpperBand() == null) {
+            return Optional.empty();
+        }
+
+        BigDecimal price = marketData.getClose();
+        BigDecimal upperBandTrigger = bb.getUpperBand().multiply(BigDecimal.valueOf(BB_UPPER_BAND_PROXIMITY));
+
+        if (price.compareTo(upperBandTrigger) >= 0) {
+            String reason = String.format("部分获利了结: 价格 %.2f 接近布林带上轨 %.2f", price, bb.getUpperBand());
+            log.info("{} {}", marketData.getSymbol(), reason);
+            // 注意：这里的置信度代表卖出仓位的比例
+            return Optional.of(createSignal(marketData.getSymbol(), TradingSignal.SignalType.SELL, price, PARTIAL_SELL_RATIO, reason));
+        }
+
+        return Optional.empty();
+    }
+
+    /**
+     * 检查动量衰竭信号。
+     * 当前实现：基于MACD死叉。
+     * @param marketData 当前市场数据
+     * @param indicatorHistory 历史指标
+     * @return 动量衰竭信号
+     */
+    protected Optional<TradingSignal> checkMomentumExhaustion(MarketData marketData, List<TechnicalIndicators> indicatorHistory) {
+        // TODO: 增强此方法以包含RSI背离、量价背离等更复杂的动量衰竭信号。
+        if (indicatorHistory.size() < 2) {
+            return Optional.empty();
+        }
+
+        TechnicalIndicators current = indicatorHistory.get(indicatorHistory.size() - 1);
+        TechnicalIndicators previous = indicatorHistory.get(indicatorHistory.size() - 2);
+
+        if (current.getMacdLine() == null || current.getSignalLine() == null || previous.getMacdLine() == null || previous.getSignalLine() == null) {
+            return Optional.empty();
+        }
+
+        // MACD死叉检测 (在0轴上方发生时信号更强，此处简化为只要死叉就触发)
+        boolean bearishCross = previous.getMacdLine().compareTo(previous.getSignalLine()) > 0 &&
+                             current.getMacdLine().compareTo(current.getSignalLine()) <= 0;
+
+        if (bearishCross) {
+            String reason = "动量衰竭信号: MACD死叉";
+            log.info("{} {}", marketData.getSymbol(), reason);
+            return Optional.of(createSignal(marketData.getSymbol(), TradingSignal.SignalType.SELL, marketData.getClose(), 1.0, reason));
+        }
+
+        return Optional.empty();
     }
 }

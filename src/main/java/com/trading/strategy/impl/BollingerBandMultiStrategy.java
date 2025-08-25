@@ -1,5 +1,15 @@
 package com.trading.strategy.impl;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import org.springframework.stereotype.Component;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.trading.config.BollingerBandConfig;
@@ -10,17 +20,8 @@ import com.trading.domain.vo.TechnicalIndicators;
 import com.trading.strategy.impl.bollinger.BollingerBandSubStrategy;
 import com.trading.strategy.impl.bollinger.MeanReversionSubStrategy;
 import com.trading.strategy.impl.bollinger.SqueezeBreakoutSubStrategy;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Component;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 @Component("BOLL")
@@ -94,25 +95,42 @@ public class BollingerBandMultiStrategy extends AbstractTradingStrategy {
 
     @Override
     protected TradingSignal generateStrategySignal(MarketData marketData, List<com.trading.domain.entity.HistoricalKLineEntity> historicalKlines, List<TechnicalIndicators> indicatorHistory, List<Position> positions) {
-        if (!this.isEnabled() || subStrategies.isEmpty() || indicatorHistory == null || indicatorHistory.isEmpty()) {
-            return createNoActionSignal(marketData.getSymbol(),"策略未启用或无子策略或指标历史为空");
+        if (subStrategies.isEmpty() || indicatorHistory == null || indicatorHistory.isEmpty()) {
+            return createNoActionSignal(marketData.getSymbol(),"无子策略或指标历史为空");
         }
 
-        // 只有在宏观趋势和波动率都适宜的情况下，才考虑具体的子策略信号
-        if (isTrendFavorable(marketData, indicatorHistory) && isVolatilityAdequate(marketData, historicalKlines, indicatorHistory)) {
-            for (BollingerBandSubStrategy subStrategy : subStrategies) {
-                try {
-                    Optional<TradingSignal> signal = subStrategy.generateSignal(marketData, indicatorHistory, positions);
-                    if (signal.isPresent() && signal.get().getType() != TradingSignal.SignalType.NO_ACTION) {
-                        return signal.get();
-                    }
-                } catch (Exception e) {
-                    log.error("执行子策略 [{}] 时发生错误: symbol={}, price={}",
-                            subStrategy.getName(), marketData.getSymbol(), marketData.getClose(), e);
-                }
+        // 检查是否已持仓
+        Optional<Position> positionOpt = positions.stream()
+                .filter(p -> p.getSymbol().equals(marketData.getSymbol()) && p.getQuantity() > 0)
+                .findFirst();
+
+        // 1. 如果持仓，优先检查通用卖出框架
+        if (positionOpt.isPresent()) {
+            Optional<TradingSignal> sellSignal = checkForBaseSellSignal(positionOpt.get(), marketData, historicalKlines, indicatorHistory);
+            if (sellSignal.isPresent()) {
+                return sellSignal.get();
             }
-        } else {
-            return createNoActionSignal(marketData.getSymbol(), "宏观环境不适宜开仓");
+        }
+
+        // 2. 如果未触发通用卖出，或未持仓，则执行原有逻辑
+        // 对于未持仓的情况，先用宏观过滤器判断是否适宜开仓
+        if (!positionOpt.isPresent()) {
+            if (!isTrendFavorable(marketData, indicatorHistory) || !isVolatilityAdequate(marketData, historicalKlines, indicatorHistory)) {
+                return createNoActionSignal(marketData.getSymbol(), "宏观环境不适宜开仓");
+            }
+        }
+
+        // 3. 执行子策略逻辑（买入或策略特定卖出）
+        for (BollingerBandSubStrategy subStrategy : subStrategies) {
+            try {
+                Optional<TradingSignal> signal = subStrategy.generateSignal(marketData, indicatorHistory, positions);
+                if (signal.isPresent() && signal.get().getType() != TradingSignal.SignalType.NO_ACTION) {
+                    return signal.get();
+                }
+            } catch (Exception e) {
+                log.error("执行子策略 [{}] 时发生错误: symbol={}, price={}",
+                        subStrategy.getName(), marketData.getSymbol(), marketData.getClose(), e);
+            }
         }
 
         return createNoActionSignal(marketData.getSymbol(),"所有布林带子策略均未触发");

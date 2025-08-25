@@ -14,6 +14,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * MACD交易策略实现
@@ -66,31 +67,22 @@ public class MACDTradingStrategy extends AbstractTradingStrategy {
             return createNoActionSignal(marketData.getSymbol(), "指标历史不足");
         }
 
+        // 检查是否已持仓
+        Optional<Position> positionOpt = positions.stream()
+                .filter(p -> p.getSymbol().equals(marketData.getSymbol()) && p.getQuantity() > 0)
+                .findFirst();
+
+        // 1. 如果持仓，则检查卖出信号
+        if (positionOpt.isPresent()) {
+            Optional<TradingSignal> sellSignal = checkForBaseSellSignal(positionOpt.get(), marketData, historicalKlines, indicatorHistory);
+            // 如果卖出框架有信号，则返回该信号；否则，持有不动
+            return sellSignal.orElse(createNoActionSignal(marketData.getSymbol(), "持仓中，未触发卖出条件"));
+        }
+
+        // 2. 如果未持仓，则在满足过滤条件的前提下，检查买入信号
         TechnicalIndicators indicators = indicatorHistory.get(indicatorHistory.size() - 1);
         TechnicalIndicators previousIndicators = indicatorHistory.get(indicatorHistory.size() - 2);
 
-        // 1. 优先检查卖出信号（不受过滤器限制）
-        if (previousIndicators.hasBearishMacdCrossover(indicators)) {
-            BigDecimal confidence = calculateBearishConfidence(indicators, marketData);
-            if (confidence.compareTo(getParameter(PARAM_MIN_CONFIDENCE, DEFAULT_MIN_CONFIDENCE)) >= 0) {
-                boolean hasLongPosition = positions.stream()
-                    .anyMatch(p -> p.getSymbol().equals(marketData.getSymbol()) && p.getQuantity() > 0);
-                
-                if (hasLongPosition) {
-                     log.info("MACD死叉平仓信号: symbol={}, confidence={}", marketData.getSymbol(), confidence);
-                    return createSignal(marketData.getSymbol(), TradingSignal.SignalType.CLOSE_LONG, marketData.getClose(), confidence.doubleValue(), "MACD死叉，平仓");
-                }
-            }
-        }
-
-        // 2. 检查是否已持仓，如果已持仓，则不再开新仓
-        boolean hasPosition = positions.stream()
-            .anyMatch(p -> p.getSymbol().equals(marketData.getSymbol()) && p.getQuantity() > 0);
-        if (hasPosition) {
-            return createNoActionSignal(marketData.getSymbol(), "已持仓，等待卖出信号");
-        }
-
-        // 3. 在满足过滤条件的前提下，检查买入信号
         if (isTrendFavorable(marketData, indicatorHistory) && isVolatilityAdequate(marketData, historicalKlines, indicatorHistory)) {
             if (previousIndicators.hasBullishMacdCrossover(indicators)) {
                 BigDecimal confidence = calculateBullishConfidence(indicators, marketData);
@@ -103,7 +95,7 @@ public class MACDTradingStrategy extends AbstractTradingStrategy {
             }
         }
         
-        // 4. 无任何操作
+        // 3. 无任何操作
         return createNoActionSignal(marketData.getSymbol(), "等待交易机会");
     }
     
