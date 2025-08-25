@@ -1,0 +1,97 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "trading-system-运行程序化交易系统",
+            "request": "launch",
+            "mainClass": "com.trading.TradingSystemStarter",
+            "projectName": "hk-stock-trading-system",
+            "args": [],
+            "console": "internalConsole",
+            "vmArgs": "-Dserver.port=8080"
+        },
+        {
+            "type": "java",
+            "name": "backtest command-运行回测指令",
+            "request": "launch",
+            "mainClass": "com.trading.TradingSystemStarter",
+            "projectName": "hk-stock-trading-system",
+            "args": [
+                "backtest",
+                "--strategy",
+                "BOLL_FILTER",
+                "--symbol",
+                "HK.00700",
+                "--from",
+                "2024-01-01",
+                "--to",
+                "2024-12-31",
+                "--capital",
+                "100000"
+            ],
+            "console": "internalConsole",
+            "vmArgs": "-Dserver.port=8081"
+        },
+        {
+            "type": "java",
+            "name": "data:download-从Futu服务器下载指定时间范围的历史K线数据",
+            "request": "launch",
+            "mainClass": "com.trading.TradingSystemStarter",
+            "projectName": "hk-stock-trading-system",
+            "args": [
+                "data:download",
+                "--symbol",
+                "HK.00700",
+                "--clean",
+                "--from",
+                "2024-01-04",
+                "--to",
+                "2024-01-05"
+            ],
+            "console": "internalConsole",
+            "vmArgs": "-Dserver.port=8082"
+        },
+        {
+            "type": "java",
+            "name": "data:query-查询数据库中特定时间范围的原始K线数据",
+            "request": "launch",
+            "mainClass": "com.trading.TradingSystemStarter",
+            "projectName": "hk-stock-trading-system",
+            "args": [
+                "data:query",
+                "--symbol",
+                "HK.00700",
+                "--from",
+                "2024-01-04",
+                "--to",
+                "2024-01-05"
+            ],
+            "console": "internalConsole",
+            "vmArgs": "-Dserver.port=8083"
+        },
+        {
+            "type": "java",
+            "name": "indicator:calc-快速检查任意股票在任意时间段的技术指标计算结果",
+            "request": "launch",
+            "mainClass": "com.trading.TradingSystemStarter",
+            "projectName": "hk-stock-trading-system",
+            "args": [
+                "indicator:calc",
+                "--symbol",
+                "HK.00700",
+                "--kline",
+                "K_30MIN",
+                "--from",
+                "2024-01-01",
+                "--to",
+                "2024-12-31",
+                "--tail",
+                "100",
+                "--output"
+            ],
+            "console": "internalConsole",
+            "vmArgs": "-Dserver.port=8084"
+        }
+    ]
+}

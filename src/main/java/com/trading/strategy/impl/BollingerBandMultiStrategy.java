@@ -110,7 +110,7 @@ public class BollingerBandMultiStrategy extends AbstractTradingStrategy {
             }
         }
 
-        return createNoActionSignal(marketData.getSymbol());
+        return createNoActionSignal(marketData.getSymbol(),"所有布林带子策略均未触发");
     }
 
     @Override
@@ -135,13 +135,5 @@ public class BollingerBandMultiStrategy extends AbstractTradingStrategy {
         return order;
     }
 
-    private TradingSignal createNoActionSignal(String symbol) {
-        return TradingSignal.builder()
-                .symbol(symbol)
-                .type(TradingSignal.SignalType.NO_ACTION)
-                .confidence(BigDecimal.ZERO)
-                .reason("所有布林带子策略均未触发")
-                .timestamp(LocalDateTime.now())
-                .build();
-    }
+
 }

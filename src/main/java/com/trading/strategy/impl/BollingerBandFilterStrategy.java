@@ -204,23 +204,7 @@ public class BollingerBandFilterStrategy extends AbstractTradingStrategy {
         return createNoActionSignal(marketData.getSymbol(), "未满足买入条件");
     }
 
-    private TradingSignal createSignal(String symbol, TradingSignal.SignalType type, BigDecimal price,
-            double confidence, String reason) {
-        return TradingSignal.builder()
-                .symbol(symbol)
-                .type(type)
-                .price(price)
-                .confidence(BigDecimal.valueOf(confidence))
-                .reason(reason)
-                .build();
-    }
 
-    private TradingSignal createNoActionSignal(String symbol, String reason) {
-        return TradingSignal.builder()
-                .type(TradingSignal.SignalType.NO_ACTION)
-                .reason(reason)
-                .build();
-    }
 
     @Override
     public int calculatePositionSize(TradingSignal signal, BigDecimal availableCash, BigDecimal currentPrice) {
